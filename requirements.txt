@@ -36,6 +36,7 @@ python-dotenv==1.0.1
 python-multipart==0.0.27
 psycopg>=3.2,<4
 psycopg-binary>=3.2,<4
+redis>=5.2,<6
 PyYAML==6.0.3
 rich==15.0.0
 rich-toolkit==0.19.7
