@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from dotenv import load_dotenv
 
@@ -47,6 +48,7 @@ WHATSAPP_VERIFY    = os.getenv("WHATSAPP_VERIFY_TOKEN", "mysecret")
 INSTAGRAM_TOKEN    = os.getenv("INSTAGRAM_TOKEN", "")
 INSTAGRAM_VERIFY   = os.getenv("INSTAGRAM_VERIFY_TOKEN", "mysecret")
 ADMIN_TOKEN        = os.getenv("ADMIN_TOKEN", "")
+MANAGER_TELEGRAM_CHAT_ID = os.getenv("MANAGER_TELEGRAM_CHAT_ID", "")
 
 DB_PATH = os.getenv("DB_PATH", "sneakers.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -142,6 +144,28 @@ def ensure_app_tables() -> None:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    id BIGSERIAL PRIMARY KEY,
+                    shop_id BIGINT REFERENCES shops(id),
+                    sneaker_id BIGINT REFERENCES sneakers(id),
+                    customer_name TEXT,
+                    customer_phone TEXT,
+                    channel TEXT,
+                    external_user_id TEXT,
+                    product_interest TEXT,
+                    status TEXT NOT NULL DEFAULT 'new',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            for ddl in (
+                "ALTER TABLE orders ADD COLUMN IF NOT EXISTS shop_id BIGINT REFERENCES shops(id)",
+                "ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel TEXT",
+                "ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_user_id TEXT",
+                "ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_interest TEXT",
+                "ALTER TABLE orders ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'new'",
+            ):
+                conn.execute(ddl)
         else:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS shops (
@@ -181,6 +205,32 @@ def ensure_app_tables() -> None:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    shop_id INTEGER,
+                    sneaker_id INTEGER,
+                    customer_name TEXT,
+                    customer_phone TEXT,
+                    channel TEXT,
+                    external_user_id TEXT,
+                    product_interest TEXT,
+                    status TEXT DEFAULT 'new',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            existing_order_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(orders)").fetchall()
+            }
+            for column, ddl in {
+                "shop_id": "ALTER TABLE orders ADD COLUMN shop_id INTEGER",
+                "channel": "ALTER TABLE orders ADD COLUMN channel TEXT",
+                "external_user_id": "ALTER TABLE orders ADD COLUMN external_user_id TEXT",
+                "product_interest": "ALTER TABLE orders ADD COLUMN product_interest TEXT",
+                "status": "ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'new'",
+            }.items():
+                if column not in existing_order_columns:
+                    conn.execute(ddl)
         conn.commit()
     finally:
         conn.close()
@@ -301,10 +351,63 @@ def get_database_status() -> dict:
         }
 
 def count_rows(table: str) -> int:
-    allowed = {"sneakers", "conversations", "messages", "analytics_events"}
+    allowed = {"sneakers", "conversations", "messages", "analytics_events", "orders"}
     if table not in allowed:
         raise ValueError("Unsupported table")
     return fetch_one_value(f"SELECT COUNT(*) FROM {table}") or 0
+
+def create_order(
+    channel: str,
+    external_user_id: str,
+    customer_name: str,
+    customer_phone: str,
+    product_interest: str,
+) -> int | None:
+    try:
+        shop_id = get_default_shop_id()
+        ph = db_placeholder()
+        row = execute_write(
+            f"""
+            INSERT INTO orders
+                (shop_id, channel, external_user_id, customer_name, customer_phone, product_interest, status)
+            VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            RETURNING id
+            """,
+            (shop_id, channel, external_user_id, customer_name, customer_phone, product_interest, "new"),
+            fetch_one=True,
+        ) if USE_POSTGRES else None
+        if USE_POSTGRES:
+            return row["id"] if row else None
+
+        execute_write(
+            f"""
+            INSERT INTO orders
+                (shop_id, channel, external_user_id, customer_name, customer_phone, product_interest, status)
+            VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            """,
+            (shop_id, channel, external_user_id, customer_name, customer_phone, product_interest, "new"),
+        )
+        return fetch_one_value("SELECT MAX(id) FROM orders")
+    except Exception as e:
+        log.error(f"Create order failed: {e}")
+        return None
+
+def list_orders(limit: int = 100, offset: int = 0) -> list[dict]:
+    ph = db_placeholder()
+    try:
+        return fetch_all(
+            f"""
+            SELECT id, channel, external_user_id, customer_name, customer_phone,
+                   product_interest, status, created_at
+            FROM orders
+            ORDER BY id DESC
+            LIMIT {ph} OFFSET {ph}
+            """,
+            (limit, offset),
+        )
+    except Exception as e:
+        log.error(f"List orders failed: {e}")
+        return []
 
 def count_logged_tokens() -> int:
     try:
@@ -377,6 +480,7 @@ def html_escape(value) -> str:
 def render_admin_page(token: str) -> str:
     stats = {
         "Products": count_rows("sneakers"),
+        "Orders": count_rows("orders"),
         "Conversations": count_rows("conversations"),
         "Messages": count_rows("messages"),
         "Events": count_rows("analytics_events"),
@@ -988,6 +1092,123 @@ async def load_session_history(user_id: str) -> list[dict]:
         log.exception("Redis session read failed")
         return chat_sessions.get(user_id, [])[-6:]
 
+order_states: dict[str, dict] = {}
+
+async def get_order_state(user_id: str) -> dict | None:
+    try:
+        client = await get_redis()
+        if client is None:
+            return order_states.get(user_id)
+
+        raw_state = await client.get(f"order:{user_id}")
+        return json.loads(raw_state) if raw_state else None
+    except Exception as e:
+        log.error(f"Get order state failed: {e}")
+        return order_states.get(user_id)
+
+async def set_order_state(user_id: str, state: dict) -> None:
+    try:
+        client = await get_redis()
+        if client is None:
+            order_states[user_id] = state
+            return
+
+        await client.set(f"order:{user_id}", json.dumps(state, ensure_ascii=False), ex=SESSION_TTL_SECONDS)
+    except Exception as e:
+        log.error(f"Set order state failed: {e}")
+        order_states[user_id] = state
+
+async def clear_order_state(user_id: str) -> None:
+    try:
+        client = await get_redis()
+        if client is None:
+            order_states.pop(user_id, None)
+            return
+
+        await client.delete(f"order:{user_id}")
+    except Exception as e:
+        log.error(f"Clear order state failed: {e}")
+        order_states.pop(user_id, None)
+
+def looks_like_order_request(message: str) -> bool:
+    text = message.lower()
+    triggers = [
+        "хочу купить", "купить", "заказать", "оформить",
+        "беру", "возьму", "оплатить", "заказ",
+    ]
+    return any(trigger in text for trigger in triggers)
+
+def looks_like_phone(message: str) -> bool:
+    digits = re.sub(r"\D", "", message)
+    return 10 <= len(digits) <= 15
+
+async def notify_manager(order_id: int | None, state: dict, channel: str, external_user_id: str) -> None:
+    try:
+        if not tg_bot or not MANAGER_TELEGRAM_CHAT_ID:
+            return
+
+        text = (
+            "Новый заказ SoleBot\n"
+            f"ID: {order_id or 'unknown'}\n"
+            f"Канал: {channel}\n"
+            f"Клиент: {external_user_id}\n"
+            f"Имя: {state.get('name', '')}\n"
+            f"Телефон: {state.get('phone', '')}\n"
+            f"Интерес: {state.get('product_interest', '')}"
+        )
+        await tg_bot.send_message(MANAGER_TELEGRAM_CHAT_ID, text)
+    except Exception as e:
+        log.error(f"Manager notification failed: {e}")
+
+async def handle_order_flow(user_id: str, user_message: str) -> str | None:
+    try:
+        channel, external_user_id = split_user_id(user_id)
+        state = await get_order_state(user_id)
+
+        if state is None:
+            if not looks_like_order_request(user_message):
+                return None
+
+            await set_order_state(user_id, {
+                "step": "name",
+                "product_interest": user_message.strip(),
+            })
+            return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
+
+        step = state.get("step")
+        if step == "name":
+            name = user_message.strip()
+            if len(name) < 2:
+                return "Напишите, пожалуйста, имя чуть подробнее."
+
+            state["name"] = name
+            state["step"] = "phone"
+            await set_order_state(user_id, state)
+            return "Спасибо. Теперь отправьте номер телефона для связи."
+
+        if step == "phone":
+            phone = user_message.strip()
+            if not looks_like_phone(phone):
+                return "Похоже, это не номер телефона. Отправьте номер в формате +7..."
+
+            state["phone"] = phone
+            order_id = create_order(
+                channel,
+                external_user_id,
+                state.get("name", ""),
+                state.get("phone", ""),
+                state.get("product_interest", ""),
+            )
+            await notify_manager(order_id, state, channel, external_user_id)
+            await clear_order_state(user_id)
+            return "Заказ принят. Менеджер скоро свяжется с вами для подтверждения."
+
+        await clear_order_state(user_id)
+        return None
+    except Exception as e:
+        log.error(f"Order flow failed: {e}")
+        return None
+
 async def ask_ai(user_id: str, user_message: str) -> str:
     """
     Groq API — llama-3.1-8b-instant.
@@ -1030,6 +1251,11 @@ async def ask_ai(user_id: str, user_message: str) -> str:
         log.exception("Conversation storage failed")
         await save_session_message(user_id, "user", user_message)
         history = await load_session_history(user_id)
+
+    order_reply = await handle_order_flow(user_id, user_message)
+    if order_reply:
+        await save_ai_result(user_id, conversation_id, channel, user_message, order_reply, started_at, product_count, "order")
+        return order_reply
 
     try:
         relevant_items = get_relevant_sneakers(user_message, limit=5)
@@ -1211,15 +1437,26 @@ async def lifespan(app: FastAPI):
             pass
 
 app = FastAPI(title="SoleBot", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── Telegram webhook ──
 @app.post("/tg/webhook")
 async def telegram_webhook(request: Request):
     if not tg_bot:
         raise HTTPException(503, "Telegram не настроен")
-    data = await request.json()
-    update = types.Update.model_validate(data)
-    await tg_dp.feed_update(tg_bot, update)
+    try:
+        data = await request.json()
+        update = types.Update.model_validate(data)
+        await tg_dp.feed_update(tg_bot, update)
+    except Exception as e:
+        log.error(f"Telegram webhook processing failed: {e}")
+        return {"ok": True, "ignored": True}
     return {"ok": True}
 
 # ── WhatsApp webhook ──
@@ -1307,6 +1544,7 @@ async def admin_stats(request: Request):
     return {
         "database": "postgresql" if USE_POSTGRES else "sqlite",
         "sneakers": count_rows("sneakers"),
+        "orders": count_rows("orders"),
         "conversations": count_rows("conversations"),
         "messages": count_rows("messages"),
         "analytics_events": count_rows("analytics_events"),
@@ -1328,6 +1566,18 @@ async def admin_products(request: Request, limit: int = 100, offset: int = 0):
         "limit": limit,
         "offset": offset,
         "items": list_products(limit=limit, offset=offset),
+    }
+
+@app.get("/admin/orders")
+async def admin_orders(request: Request, limit: int = 100, offset: int = 0):
+    require_admin(request)
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    return {
+        "count": count_rows("orders"),
+        "limit": limit,
+        "offset": offset,
+        "items": list_orders(limit=limit, offset=offset),
     }
 
 @app.get("/admin/import-template")
