@@ -1,6 +1,4 @@
 
-import os
-import sqlite3
 import json
 import logging
 import re
@@ -13,95 +11,41 @@ import httpx
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
-from dotenv import load_dotenv
 
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-except ImportError:
-    psycopg = None
-    dict_row = None
-
-try:
-    import redis.asyncio as redis
-except ImportError:
-    redis = None
+from config import (
+    ADMIN_TOKEN,
+    DEFAULT_SHOP_NAME,
+    DEFAULT_SHOP_SLUG,
+    GROQ_API_KEY,
+    INSTAGRAM_TOKEN,
+    INSTAGRAM_VERIFY_TOKEN,
+    MANAGER_TELEGRAM_CHAT_ID,
+    RATE_LIMIT_MESSAGES,
+    RATE_LIMIT_WINDOW_SECONDS,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_WEBHOOK_URL,
+    USE_POSTGRES,
+    WHATSAPP_PHONE_NUMBER_ID,
+    WHATSAPP_TOKEN,
+    WHATSAPP_VERIFY_TOKEN,
+)
+from db import db_placeholder, execute_write, fetch_all, fetch_one_value, get_db
 
 # Telegram
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# ─── Конфигурация ────────────────────────────────────────────────────
-GROQ_API_KEY       = os.getenv("GROQ_API_KEY", "")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_WEBHOOK   = os.getenv("TELEGRAM_WEBHOOK_URL", "")   # https://yourdomain.com/tg/webhook
+# в”Ђв”Ђв”Ђ РљРѕРЅС„РёРіСѓСЂР°С†РёСЏ в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+TELEGRAM_WEBHOOK = TELEGRAM_WEBHOOK_URL
+WHATSAPP_NUMBER_ID = WHATSAPP_PHONE_NUMBER_ID
+WHATSAPP_VERIFY = WHATSAPP_VERIFY_TOKEN
+INSTAGRAM_VERIFY = INSTAGRAM_VERIFY_TOKEN
 
-WHATSAPP_TOKEN     = os.getenv("WHATSAPP_TOKEN", "")          # Meta Business token
-WHATSAPP_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
-WHATSAPP_VERIFY    = os.getenv("WHATSAPP_VERIFY_TOKEN", "mysecret")
-
-INSTAGRAM_TOKEN    = os.getenv("INSTAGRAM_TOKEN", "")
-INSTAGRAM_VERIFY   = os.getenv("INSTAGRAM_VERIFY_TOKEN", "mysecret")
-ADMIN_TOKEN        = os.getenv("ADMIN_TOKEN", "")
-MANAGER_TELEGRAM_CHAT_ID = os.getenv("MANAGER_TELEGRAM_CHAT_ID", "")
-
-DB_PATH = os.getenv("DB_PATH", "sneakers.db")
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-USE_POSTGRES = bool(DATABASE_URL)
-DEFAULT_SHOP_SLUG = os.getenv("SHOP_SLUG", "default")
-DEFAULT_SHOP_NAME = os.getenv("SHOP_NAME", "Default shop")
-REDIS_URL = os.getenv("REDIS_URL", "")
-SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "86400"))
-RATE_LIMIT_MESSAGES = int(os.getenv("RATE_LIMIT_MESSAGES", "10"))
-RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
-
-# ─── База данных ──────────────────────────────────────────────────────
-def get_db():
-    if USE_POSTGRES:
-        if psycopg is None:
-            raise RuntimeError("Install psycopg[binary] to use PostgreSQL")
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def db_placeholder() -> str:
-    return "%s" if USE_POSTGRES else "?"
-
-def fetch_all(query: str, params: list | tuple = ()) -> list[dict]:
-    conn = get_db()
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-def fetch_one_value(query: str, params: list | tuple = ()):
-    conn = get_db()
-    row = conn.execute(query, params).fetchone()
-    conn.close()
-    if row is None:
-        return None
-    if isinstance(row, dict):
-        return next(iter(row.values()))
-    return row[0]
-
-def execute_write(query: str, params: list | tuple = (), fetch_one: bool = False):
-    conn = get_db()
-    try:
-        cur = conn.execute(query, params)
-        row = cur.fetchone() if fetch_one else None
-        conn.commit()
-        if row is None:
-            return None
-        return dict(row) if not isinstance(row, tuple) else row
-    finally:
-        conn.close()
-
+# в”Ђв”Ђв”Ђ Р‘Р°Р·Р° РґР°РЅРЅС‹С… в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 def ensure_app_tables() -> None:
     conn = get_db()
     try:
@@ -111,9 +55,36 @@ def ensure_app_tables() -> None:
                     id BIGSERIAL PRIMARY KEY,
                     name TEXT NOT NULL,
                     slug TEXT NOT NULL UNIQUE,
+                    tg_token TEXT,
+                    tg_webhook_secret TEXT,
+                    groq_system_prompt TEXT,
+                    owner_email TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            for ddl in (
+                "ALTER TABLE shops ADD COLUMN IF NOT EXISTS tg_token TEXT",
+                "ALTER TABLE shops ADD COLUMN IF NOT EXISTS tg_webhook_secret TEXT",
+                "ALTER TABLE shops ADD COLUMN IF NOT EXISTS groq_system_prompt TEXT",
+                "ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_email TEXT",
+                "ALTER TABLE shops ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'",
+            ):
+                conn.execute(ddl)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id BIGSERIAL PRIMARY KEY,
+                    shop_id BIGINT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+                    plan TEXT NOT NULL DEFAULT 'trial',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    messages_limit INT NOT NULL DEFAULT 500,
+                    channels_limit INT NOT NULL DEFAULT 1,
+                    trial_ends_at TIMESTAMPTZ,
+                    period_ends_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            conn.execute("ALTER TABLE sneakers ADD COLUMN IF NOT EXISTS shop_id BIGINT REFERENCES shops(id)")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS conversations (
                     id BIGSERIAL PRIMARY KEY,
@@ -166,15 +137,55 @@ def ensure_app_tables() -> None:
                 "ALTER TABLE orders ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'new'",
             ):
                 conn.execute(ddl)
+            conn.execute("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS shop_id BIGINT REFERENCES shops(id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sneakers_shop ON sneakers(shop_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_shop ON orders(shop_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_shop ON conversations(shop_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_shop ON subscriptions(shop_id)")
         else:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS shops (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     slug TEXT NOT NULL UNIQUE,
+                    tg_token TEXT,
+                    tg_webhook_secret TEXT,
+                    groq_system_prompt TEXT,
+                    owner_email TEXT,
+                    status TEXT DEFAULT 'active',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            existing_shop_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(shops)").fetchall()
+            }
+            for column, ddl in {
+                "tg_token": "ALTER TABLE shops ADD COLUMN tg_token TEXT",
+                "tg_webhook_secret": "ALTER TABLE shops ADD COLUMN tg_webhook_secret TEXT",
+                "groq_system_prompt": "ALTER TABLE shops ADD COLUMN groq_system_prompt TEXT",
+                "owner_email": "ALTER TABLE shops ADD COLUMN owner_email TEXT",
+                "status": "ALTER TABLE shops ADD COLUMN status TEXT DEFAULT 'active'",
+            }.items():
+                if column not in existing_shop_columns:
+                    conn.execute(ddl)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    shop_id INTEGER NOT NULL,
+                    plan TEXT NOT NULL DEFAULT 'trial',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    messages_limit INTEGER NOT NULL DEFAULT 500,
+                    channels_limit INTEGER NOT NULL DEFAULT 1,
+                    trial_ends_at TIMESTAMP,
+                    period_ends_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            existing_sneaker_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(sneakers)").fetchall()
+            }
+            if "shop_id" not in existing_sneaker_columns:
+                conn.execute("ALTER TABLE sneakers ADD COLUMN shop_id INTEGER")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS conversations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,6 +242,15 @@ def ensure_app_tables() -> None:
             }.items():
                 if column not in existing_order_columns:
                     conn.execute(ddl)
+            existing_conversation_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(conversations)").fetchall()
+            }
+            if "shop_id" not in existing_conversation_columns:
+                conn.execute("ALTER TABLE conversations ADD COLUMN shop_id INTEGER")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sneakers_shop ON sneakers(shop_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_shop ON orders(shop_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_shop ON conversations(shop_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_shop ON subscriptions(shop_id)")
         conn.commit()
     finally:
         conn.close()
@@ -256,14 +276,53 @@ def get_default_shop_id() -> int:
     )
     return fetch_one_value(f"SELECT id FROM shops WHERE slug = {ph}", (DEFAULT_SHOP_SLUG,))
 
+def ensure_default_shop_data() -> None:
+    try:
+        shop_id = get_default_shop_id()
+        ph = db_placeholder()
+        execute_write(f"UPDATE sneakers SET shop_id = {ph} WHERE shop_id IS NULL", (shop_id,))
+        execute_write(f"UPDATE orders SET shop_id = {ph} WHERE shop_id IS NULL", (shop_id,))
+        execute_write(f"UPDATE conversations SET shop_id = {ph} WHERE shop_id IS NULL", (shop_id,))
+
+        existing_sub = fetch_one_value(
+            f"SELECT id FROM subscriptions WHERE shop_id = {ph} AND status = {ph} LIMIT 1",
+            (shop_id, "active"),
+        )
+        if existing_sub:
+            return
+
+        if USE_POSTGRES:
+            execute_write(
+                f"""
+                INSERT INTO subscriptions
+                    (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, NOW() + INTERVAL '30 days')
+                """,
+                (shop_id, "trial", "active", 500, 3),
+            )
+        else:
+            execute_write(
+                f"""
+                INSERT INTO subscriptions
+                    (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, datetime('now', '+30 days'))
+                """,
+                (shop_id, "trial", "active", 500, 3),
+            )
+    except Exception as e:
+        log.error(f"Default shop data setup failed: {e}")
+
 def split_user_id(user_id: str) -> tuple[str, str]:
     if "_" not in user_id:
         return "unknown", user_id
     channel, external_user_id = user_id.split("_", 1)
     return channel, external_user_id
 
-def get_or_create_conversation(channel: str, external_user_id: str) -> int:
-    shop_id = get_default_shop_id()
+def resolve_shop_id(shop_id: int | None = None) -> int:
+    return shop_id if shop_id is not None else get_default_shop_id()
+
+def get_or_create_conversation(channel: str, external_user_id: str, shop_id: int | None = None) -> int:
+    shop_id = resolve_shop_id(shop_id)
     ph = db_placeholder()
     if USE_POSTGRES:
         row = execute_write(
@@ -323,8 +382,8 @@ def load_recent_messages(conversation_id: int, limit: int = 6) -> list[dict]:
     )
     return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
-def log_analytics_event(channel: str, event_name: str, payload: dict) -> None:
-    shop_id = get_default_shop_id()
+def log_analytics_event(channel: str, event_name: str, payload: dict, shop_id: int | None = None) -> None:
+    shop_id = resolve_shop_id(shop_id)
     ph = db_placeholder()
     payload_value = json.dumps(payload, ensure_ascii=False)
     payload_expr = f"{ph}::jsonb" if USE_POSTGRES else ph
@@ -351,7 +410,7 @@ def get_database_status() -> dict:
         }
 
 def count_rows(table: str) -> int:
-    allowed = {"sneakers", "conversations", "messages", "analytics_events", "orders"}
+    allowed = {"sneakers", "conversations", "messages", "analytics_events", "orders", "shops", "subscriptions"}
     if table not in allowed:
         raise ValueError("Unsupported table")
     return fetch_one_value(f"SELECT COUNT(*) FROM {table}") or 0
@@ -362,9 +421,10 @@ def create_order(
     customer_name: str,
     customer_phone: str,
     product_interest: str,
+    shop_id: int | None = None,
 ) -> int | None:
     try:
-        shop_id = get_default_shop_id()
+        shop_id = resolve_shop_id(shop_id)
         ph = db_placeholder()
         row = execute_write(
             f"""
@@ -392,40 +452,113 @@ def create_order(
         log.error(f"Create order failed: {e}")
         return None
 
-def list_orders(limit: int = 100, offset: int = 0) -> list[dict]:
+def list_orders(limit: int = 100, offset: int = 0, shop_id: int | None = None) -> list[dict]:
     ph = db_placeholder()
     try:
+        shop_id = resolve_shop_id(shop_id)
         return fetch_all(
             f"""
             SELECT id, channel, external_user_id, customer_name, customer_phone,
                    product_interest, status, created_at
             FROM orders
+            WHERE shop_id = {ph}
             ORDER BY id DESC
             LIMIT {ph} OFFSET {ph}
             """,
-            (limit, offset),
+            (shop_id, limit, offset),
         )
     except Exception as e:
         log.error(f"List orders failed: {e}")
         return []
 
-def count_logged_tokens() -> int:
+def list_shops() -> list[dict]:
     try:
+        return fetch_all("""
+            SELECT s.id, s.name, s.slug, s.owner_email, s.status, s.created_at,
+                   s.tg_webhook_secret,
+                   CASE WHEN s.tg_token IS NULL OR s.tg_token = '' THEN false ELSE true END AS has_tg_token,
+                   sub.plan,
+                   sub.status AS sub_status,
+                   sub.messages_limit,
+                   sub.channels_limit,
+                   sub.trial_ends_at,
+                   sub.period_ends_at
+            FROM shops s
+            LEFT JOIN subscriptions sub ON sub.shop_id = s.id
+            ORDER BY s.id DESC
+        """)
+    except Exception as e:
+        log.error(f"List shops failed: {e}")
+        return []
+
+def get_all_active_telegram_shops() -> list[dict]:
+    try:
+        return fetch_all("""
+            SELECT id, name, slug, tg_token, tg_webhook_secret
+            FROM shops
+            WHERE tg_token IS NOT NULL
+              AND tg_token <> ''
+              AND tg_webhook_secret IS NOT NULL
+              AND tg_webhook_secret <> ''
+              AND status = 'active'
+            ORDER BY id
+        """)
+    except Exception as e:
+        log.error(f"Get active Telegram shops failed: {e}")
+        return []
+
+def get_shop_by_webhook_secret(secret: str) -> dict | None:
+    try:
+        ph = db_placeholder()
+        rows = fetch_all(
+            f"""
+            SELECT id, name, slug, tg_token, tg_webhook_secret
+            FROM shops
+            WHERE tg_webhook_secret = {ph} AND status = {ph}
+            LIMIT 1
+            """,
+            (secret, "active"),
+        )
+        return rows[0] if rows else None
+    except Exception as e:
+        log.error(f"Get shop by webhook secret failed: {e}")
+        return None
+
+def get_shop_subscription(shop_id: int) -> dict | None:
+    try:
+        ph = db_placeholder()
+        rows = fetch_all(
+            f"SELECT * FROM subscriptions WHERE shop_id = {ph} AND status = {ph} LIMIT 1",
+            (shop_id, "active"),
+        )
+        return rows[0] if rows else None
+    except Exception as e:
+        log.error(f"Get shop subscription failed: {e}")
+        return None
+
+def is_subscription_active(shop_id: int) -> bool:
+    return get_shop_subscription(shop_id) is not None
+
+def count_logged_tokens(shop_id: int | None = None) -> int:
+    try:
+        shop_id = resolve_shop_id(shop_id)
         if USE_POSTGRES:
             return fetch_one_value(
-                """
+                f"""
                 SELECT COALESCE(SUM(COALESCE((payload->>'total_tokens')::INTEGER, 0)), 0)
                 FROM analytics_events
-                WHERE event_name = 'chat_reply'
-                """
+                WHERE event_name = 'chat_reply' AND shop_id = {db_placeholder()}
+                """,
+                (shop_id,),
             ) or 0
 
         return fetch_one_value(
-            """
+            f"""
             SELECT COALESCE(SUM(COALESCE(json_extract(payload, '$.total_tokens'), 0)), 0)
             FROM analytics_events
-            WHERE event_name = 'chat_reply'
-            """
+            WHERE event_name = 'chat_reply' AND shop_id = {db_placeholder()}
+            """,
+            (shop_id,),
         ) or 0
     except Exception:
         log.exception("Token count failed")
@@ -437,20 +570,23 @@ def require_admin(request: Request) -> None:
     if request.query_params.get("token") != ADMIN_TOKEN:
         raise HTTPException(403, "Forbidden")
 
-def list_products(limit: int = 100, offset: int = 0) -> list[dict]:
+def list_products(limit: int = 100, offset: int = 0, shop_id: int | None = None) -> list[dict]:
     ph = db_placeholder()
+    shop_id = resolve_shop_id(shop_id)
     return fetch_all(
         f"""
         SELECT id, brand, model, colorway, size, quantity, price, category, gender
         FROM sneakers
+        WHERE shop_id = {ph}
         ORDER BY brand, model, colorway, size
         LIMIT {ph} OFFSET {ph}
         """,
-        (limit, offset),
+        (shop_id, limit, offset),
     )
 
-def list_recent_messages(limit: int = 20) -> list[dict]:
+def list_recent_messages(limit: int = 20, shop_id: int | None = None) -> list[dict]:
     ph = db_placeholder()
+    shop_id = resolve_shop_id(shop_id)
     return fetch_all(
         f"""
         SELECT
@@ -462,10 +598,11 @@ def list_recent_messages(limit: int = 20) -> list[dict]:
             c.external_user_id
         FROM messages m
         JOIN conversations c ON c.id = m.conversation_id
+        WHERE c.shop_id = {ph}
         ORDER BY m.id DESC
         LIMIT {ph}
         """,
-        (limit,),
+        (shop_id, limit),
     )
 
 def html_escape(value) -> str:
@@ -477,17 +614,37 @@ def html_escape(value) -> str:
         .replace('"', "&quot;")
     )
 
-def render_admin_page(token: str) -> str:
+def count_shop_rows(table: str, shop_id: int | None = None) -> int:
+    allowed = {"sneakers", "conversations", "analytics_events", "orders"}
+    if table not in allowed:
+        raise ValueError("Unsupported shop table")
+    ph = db_placeholder()
+    return fetch_one_value(f"SELECT COUNT(*) FROM {table} WHERE shop_id = {ph}", (resolve_shop_id(shop_id),)) or 0
+
+def count_shop_messages(shop_id: int | None = None) -> int:
+    ph = db_placeholder()
+    return fetch_one_value(
+        f"""
+        SELECT COUNT(*)
+        FROM messages m
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE c.shop_id = {ph}
+        """,
+        (resolve_shop_id(shop_id),),
+    ) or 0
+
+def render_admin_page(token: str, shop_id: int | None = None) -> str:
+    shop_id = resolve_shop_id(shop_id)
     stats = {
-        "Products": count_rows("sneakers"),
-        "Orders": count_rows("orders"),
-        "Conversations": count_rows("conversations"),
-        "Messages": count_rows("messages"),
-        "Events": count_rows("analytics_events"),
-        "Tokens": count_logged_tokens(),
+        "Products": count_shop_rows("sneakers", shop_id),
+        "Orders": count_shop_rows("orders", shop_id),
+        "Conversations": count_shop_rows("conversations", shop_id),
+        "Messages": count_shop_messages(shop_id),
+        "Events": count_shop_rows("analytics_events", shop_id),
+        "Tokens": count_logged_tokens(shop_id),
     }
-    products = list_products(limit=80)
-    messages = list_recent_messages(limit=20)
+    products = list_products(limit=80, shop_id=shop_id)
+    messages = list_recent_messages(limit=20, shop_id=shop_id)
 
     stat_cards = "".join(
         f"<section class='metric'><span>{label}</span><strong>{value}</strong></section>"
@@ -500,7 +657,7 @@ def render_admin_page(token: str) -> str:
         f"<td>{html_escape(p.get('colorway'))}</td>"
         f"<td>{html_escape(p['size'])}</td>"
         f"<td>{html_escape(p['quantity'])}</td>"
-        f"<td>{html_escape(p['price'])} ₸</td>"
+        f"<td>{html_escape(p['price'])} в‚ё</td>"
         f"<td>{html_escape(p.get('category'))}</td>"
         f"<td>{html_escape(p.get('gender'))}</td>"
         "</tr>"
@@ -753,9 +910,9 @@ def products_to_csv(products: list[dict]) -> str:
         writer.writerow({name: item.get(name, "") for name in fieldnames})
     return output.getvalue()
 
-def import_products(products: list[dict], replace: bool = False) -> int:
+def import_products(products: list[dict], replace: bool = False, shop_id: int | None = None) -> int:
     ensure_app_tables()
-    shop_id = get_default_shop_id()
+    shop_id = resolve_shop_id(shop_id)
     ph = db_placeholder()
     conn = get_db()
     try:
@@ -852,13 +1009,14 @@ def import_products(products: list[dict], replace: bool = False) -> int:
 def replace_products(products: list[dict]) -> int:
     return import_products(products, replace=True)
 
-def search_sneakers(query: str) -> list[dict]:
-    """Поиск по складу — по бренду, модели, расцветке, категории"""
+def search_sneakers(query: str, shop_id: int | None = None) -> list[dict]:
+    """РџРѕРёСЃРє РїРѕ СЃРєР»Р°РґСѓ вЂ” РїРѕ Р±СЂРµРЅРґСѓ, РјРѕРґРµР»Рё, СЂР°СЃС†РІРµС‚РєРµ, РєР°С‚РµРіРѕСЂРёРё"""
     words = [w for w in query.lower().split() if len(w) > 2]
     if not words:
         return []
     
     ph = db_placeholder()
+    shop_id = resolve_shop_id(shop_id)
     conditions = " OR ".join(
         [f"(LOWER(brand) LIKE {ph} OR LOWER(model) LIKE {ph} OR LOWER(colorway) LIKE {ph} OR LOWER(category) LIKE {ph})"
          for _ in words]
@@ -868,24 +1026,25 @@ def search_sneakers(query: str) -> list[dict]:
         params.extend([f"%{w}%"] * 4)
     
     return fetch_all(
-        f"SELECT * FROM sneakers WHERE {conditions} ORDER BY brand, model, size",
-        params
+        f"SELECT * FROM sneakers WHERE shop_id = {ph} AND ({conditions}) ORDER BY brand, model, size",
+        [shop_id, *params],
     )
 
 def extract_requested_size(query: str) -> float | None:
-    match = re.search(r"\b(?:р(?:азмер)?\.?\s*)?([3-4][0-9](?:[.,]5)?)\b", query.lower())
+    match = re.search(r"\b(?:СЂ(?:Р°Р·РјРµСЂ)?\.?\s*)?([3-4][0-9](?:[.,]5)?)\b", query.lower())
     if not match:
         return None
     return float(match.group(1).replace(",", "."))
 
-def get_relevant_sneakers(query: str, limit: int = 5) -> list[dict]:
-    """RAG retrieval: достаём только самые похожие товары для промпта."""
+def get_relevant_sneakers(query: str, limit: int = 5, shop_id: int | None = None) -> list[dict]:
+    """RAG retrieval: РґРѕСЃС‚Р°С‘Рј С‚РѕР»СЊРєРѕ СЃР°РјС‹Рµ РїРѕС…РѕР¶РёРµ С‚РѕРІР°СЂС‹ РґР»СЏ РїСЂРѕРјРїС‚Р°."""
     words = [w for w in re.findall(r"[\w-]+", query.lower()) if len(w) > 2]
     requested_size = extract_requested_size(query)
     if not words and requested_size is None:
         return []
 
     ph = db_placeholder()
+    shop_id = resolve_shop_id(shop_id)
     score_params: list = []
     where_params: list = []
     score_parts = []
@@ -917,14 +1076,14 @@ def get_relevant_sneakers(query: str, limit: int = 5) -> list[dict]:
 
     score_sql = " + ".join(score_parts) or "0"
     where_sql = " OR ".join(where_parts) or "1=1"
-    params = [*score_params, *where_params]
+    params = [*score_params, shop_id, *where_params]
     params.append(limit)
 
     return fetch_all(
         f"""
         SELECT *, ({score_sql}) AS relevance
         FROM sneakers
-        WHERE ({where_sql}) AND quantity > 0
+        WHERE shop_id = {ph} AND ({where_sql}) AND quantity > 0
         ORDER BY relevance DESC, brand, model, size
         LIMIT {ph}
         """,
@@ -933,7 +1092,7 @@ def get_relevant_sneakers(query: str, limit: int = 5) -> list[dict]:
 
 def format_sneakers_context(items: list[dict]) -> str:
     if not items:
-        return "Нет точных совпадений в наличии. Попроси уточнить бренд, модель, размер или стиль."
+        return "РќРµС‚ С‚РѕС‡РЅС‹С… СЃРѕРІРїР°РґРµРЅРёР№ РІ РЅР°Р»РёС‡РёРё. РџРѕРїСЂРѕСЃРё СѓС‚РѕС‡РЅРёС‚СЊ Р±СЂРµРЅРґ, РјРѕРґРµР»СЊ, СЂР°Р·РјРµСЂ РёР»Рё СЃС‚РёР»СЊ."
 
     lines = []
     for item in items:
@@ -941,13 +1100,13 @@ def format_sneakers_context(items: list[dict]) -> str:
         category = item.get("category") or ""
         lines.append(
             f"{item['brand']} {item['model']} {colorway}|"
-            f"размер {item['size']}|{item['price']}₸|"
-            f"остаток {item['quantity']}|{category}"
+            f"СЂР°Р·РјРµСЂ {item['size']}|{item['price']}в‚ё|"
+            f"РѕСЃС‚Р°С‚РѕРє {item['quantity']}|{category}"
         )
     return "\n".join(lines)
 
 def check_availability(brand: str = "", model: str = "", size: float = None) -> list[dict]:
-    """Точная проверка наличия"""
+    """РўРѕС‡РЅР°СЏ РїСЂРѕРІРµСЂРєР° РЅР°Р»РёС‡РёСЏ"""
     conds, params = ["1=1"], []
     ph = db_placeholder()
     if brand:
@@ -967,9 +1126,9 @@ def check_availability(brand: str = "", model: str = "", size: float = None) -> 
 
 def get_db_summary() -> str:
     """
-    ОПТИМИЗАЦИЯ 1: Компактный текстовый формат вместо JSON.
-    Экономия ~61% токенов на описании склада.
-    Формат: Бренд Модель | цена | размеры | наличие
+    РћРџРўРРњРР—РђР¦РРЇ 1: РљРѕРјРїР°РєС‚РЅС‹Р№ С‚РµРєСЃС‚РѕРІС‹Р№ С„РѕСЂРјР°С‚ РІРјРµСЃС‚Рѕ JSON.
+    Р­РєРѕРЅРѕРјРёСЏ ~61% С‚РѕРєРµРЅРѕРІ РЅР° РѕРїРёСЃР°РЅРёРё СЃРєР»Р°РґР°.
+    Р¤РѕСЂРјР°С‚: Р‘СЂРµРЅРґ РњРѕРґРµР»СЊ | С†РµРЅР° | СЂР°Р·РјРµСЂС‹ | РЅР°Р»РёС‡РёРµ
     """
     if USE_POSTGRES:
         query = """
@@ -990,151 +1149,24 @@ def get_db_summary() -> str:
     rows = fetch_all(query)
     lines = []
     for r in rows:
-        stock = "есть" if r["total_qty"] > 0 else "нет"
-        lines.append(f"{r['brand']} {r['model']}|{r['price']}₸|р.{r['sizes']}|{stock}")
+        stock = "РµСЃС‚СЊ" if r["total_qty"] > 0 else "РЅРµС‚"
+        lines.append(f"{r['brand']} {r['model']}|{r['price']}в‚ё|СЂ.{r['sizes']}|{stock}")
     return "\n".join(lines)
 
-# ОПТИМИЗАЦИЯ 2: Системный промпт — только суть, без лишних слов.
-# Каждый лишний токен в system prompt умножается на КАЖДЫЙ запрос.
-SYSTEM_PROMPT = """Консультант магазина кроссовок. Отвечай по-русски, 2-3 предложения максимум.
+# РћРџРўРРњРР—РђР¦РРЇ 2: РЎРёСЃС‚РµРјРЅС‹Р№ РїСЂРѕРјРїС‚ вЂ” С‚РѕР»СЊРєРѕ СЃСѓС‚СЊ, Р±РµР· Р»РёС€РЅРёС… СЃР»РѕРІ.
+# РљР°Р¶РґС‹Р№ Р»РёС€РЅРёР№ С‚РѕРєРµРЅ РІ system prompt СѓРјРЅРѕР¶Р°РµС‚СЃСЏ РЅР° РљРђР–Р”Р«Р™ Р·Р°РїСЂРѕСЃ.
+SYSTEM_PROMPT = """РљРѕРЅСЃСѓР»СЊС‚Р°РЅС‚ РјР°РіР°Р·РёРЅР° РєСЂРѕСЃСЃРѕРІРѕРє. РћС‚РІРµС‡Р°Р№ РїРѕ-СЂСѓСЃСЃРєРё, 2-3 РїСЂРµРґР»РѕР¶РµРЅРёСЏ РјР°РєСЃРёРјСѓРј.
 
-НАЙДЕНО НА СКЛАДЕ (бренд модель цвет|размер|цена|остаток|категория):
+РќРђР™Р”Р•РќРћ РќРђ РЎРљР›РђР”Р• (Р±СЂРµРЅРґ РјРѕРґРµР»СЊ С†РІРµС‚|СЂР°Р·РјРµСЂ|С†РµРЅР°|РѕСЃС‚Р°С‚РѕРє|РєР°С‚РµРіРѕСЂРёСЏ):
 {product_context}
 
-Правила: используй только найденные товары; цены в ₸; если точного совпадения нет — задай уточняющий вопрос или предложи ближайшие варианты; не выдумывай."""
-
-# Хранилище истории чатов (в продакшне — Redis или БД)
-chat_sessions: dict[str, list] = {}
-redis_client = None
-
-async def get_redis():
-    global redis_client
-    if not REDIS_URL or redis is None:
-        return None
-    if redis_client is None:
-        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-    return redis_client
-
-async def close_redis() -> None:
-    global redis_client
-    if redis_client is not None:
-        await redis_client.aclose()
-        redis_client = None
-
-async def get_redis_status() -> dict:
-    if not REDIS_URL:
-        return {"redis": "disabled", "redis_ok": False}
-    if redis is None:
-        return {"redis": "missing_dependency", "redis_ok": False}
-    try:
-        client = await get_redis()
-        await client.ping()
-        return {"redis": "enabled", "redis_ok": True}
-    except Exception as e:
-        log.exception("Redis healthcheck failed")
-        return {"redis": "enabled", "redis_ok": False, "redis_error": type(e).__name__}
-
-async def check_rate_limit(user_id: str) -> tuple[bool, int]:
-    client = await get_redis()
-    if client is None:
-        return check_memory_rate_limit(user_id)
-
-    key = f"rate:{user_id}:{int(time.time() // RATE_LIMIT_WINDOW_SECONDS)}"
-    try:
-        current = await client.incr(key)
-        if current == 1:
-            await client.expire(key, RATE_LIMIT_WINDOW_SECONDS + 5)
-        remaining = max(0, RATE_LIMIT_MESSAGES - current)
-        return current <= RATE_LIMIT_MESSAGES, remaining
-    except Exception:
-        log.exception("Redis rate limit failed")
-        return check_memory_rate_limit(user_id)
-
-memory_rate_limits: dict[str, tuple[int, int]] = {}
-
-def check_memory_rate_limit(user_id: str) -> tuple[bool, int]:
-    bucket = int(time.time() // RATE_LIMIT_WINDOW_SECONDS)
-    key = f"{user_id}:{bucket}"
-    count, _ = memory_rate_limits.get(key, (0, bucket))
-    count += 1
-    memory_rate_limits[key] = (count, bucket)
-    remaining = max(0, RATE_LIMIT_MESSAGES - count)
-    return count <= RATE_LIMIT_MESSAGES, remaining
-
-async def save_session_message(user_id: str, role: str, content: str) -> None:
-    message = json.dumps({"role": role, "content": content}, ensure_ascii=False)
-    client = await get_redis()
-    if client is None:
-        chat_sessions.setdefault(user_id, []).append({"role": role, "content": content})
-        chat_sessions[user_id] = chat_sessions[user_id][-6:]
-        return
-
-    key = f"session:{user_id}"
-    try:
-        await client.rpush(key, message)
-        await client.ltrim(key, -6, -1)
-        await client.expire(key, SESSION_TTL_SECONDS)
-    except Exception:
-        log.exception("Redis session write failed")
-        chat_sessions.setdefault(user_id, []).append({"role": role, "content": content})
-        chat_sessions[user_id] = chat_sessions[user_id][-6:]
-
-async def load_session_history(user_id: str) -> list[dict]:
-    client = await get_redis()
-    if client is None:
-        return chat_sessions.get(user_id, [])[-6:]
-
-    key = f"session:{user_id}"
-    try:
-        raw_messages = await client.lrange(key, -6, -1)
-        return [json.loads(item) for item in raw_messages]
-    except Exception:
-        log.exception("Redis session read failed")
-        return chat_sessions.get(user_id, [])[-6:]
-
-order_states: dict[str, dict] = {}
-
-async def get_order_state(user_id: str) -> dict | None:
-    try:
-        client = await get_redis()
-        if client is None:
-            return order_states.get(user_id)
-
-        raw_state = await client.get(f"order:{user_id}")
-        return json.loads(raw_state) if raw_state else None
-    except Exception as e:
-        log.error(f"Get order state failed: {e}")
-        return order_states.get(user_id)
-
-async def set_order_state(user_id: str, state: dict) -> None:
-    try:
-        client = await get_redis()
-        if client is None:
-            order_states[user_id] = state
-            return
-
-        await client.set(f"order:{user_id}", json.dumps(state, ensure_ascii=False), ex=SESSION_TTL_SECONDS)
-    except Exception as e:
-        log.error(f"Set order state failed: {e}")
-        order_states[user_id] = state
-
-async def clear_order_state(user_id: str) -> None:
-    try:
-        client = await get_redis()
-        if client is None:
-            order_states.pop(user_id, None)
-            return
-
-        await client.delete(f"order:{user_id}")
-    except Exception as e:
-        log.error(f"Clear order state failed: {e}")
-        order_states.pop(user_id, None)
+РџСЂР°РІРёР»Р°: РёСЃРїРѕР»СЊР·СѓР№ С‚РѕР»СЊРєРѕ РЅР°Р№РґРµРЅРЅС‹Рµ С‚РѕРІР°СЂС‹; С†РµРЅС‹ РІ в‚ё; РµСЃР»Рё С‚РѕС‡РЅРѕРіРѕ СЃРѕРІРїР°РґРµРЅРёСЏ РЅРµС‚ вЂ” Р·Р°РґР°Р№ СѓС‚РѕС‡РЅСЏСЋС‰РёР№ РІРѕРїСЂРѕСЃ РёР»Рё РїСЂРµРґР»РѕР¶Рё Р±Р»РёР¶Р°Р№С€РёРµ РІР°СЂРёР°РЅС‚С‹; РЅРµ РІС‹РґСѓРјС‹РІР°Р№."""
 
 def looks_like_order_request(message: str) -> bool:
     text = message.lower()
     triggers = [
-        "хочу купить", "купить", "заказать", "оформить",
-        "беру", "возьму", "оплатить", "заказ",
+        "С…РѕС‡Сѓ РєСѓРїРёС‚СЊ", "РєСѓРїРёС‚СЊ", "Р·Р°РєР°Р·Р°С‚СЊ", "РѕС„РѕСЂРјРёС‚СЊ",
+        "Р±РµСЂСѓ", "РІРѕР·СЊРјСѓ", "РѕРїР»Р°С‚РёС‚СЊ", "Р·Р°РєР°Р·",
     ]
     return any(trigger in text for trigger in triggers)
 
@@ -1148,19 +1180,19 @@ async def notify_manager(order_id: int | None, state: dict, channel: str, extern
             return
 
         text = (
-            "Новый заказ SoleBot\n"
+            "РќРѕРІС‹Р№ Р·Р°РєР°Р· SoleBot\n"
             f"ID: {order_id or 'unknown'}\n"
-            f"Канал: {channel}\n"
-            f"Клиент: {external_user_id}\n"
-            f"Имя: {state.get('name', '')}\n"
-            f"Телефон: {state.get('phone', '')}\n"
-            f"Интерес: {state.get('product_interest', '')}"
+            f"РљР°РЅР°Р»: {channel}\n"
+            f"РљР»РёРµРЅС‚: {external_user_id}\n"
+            f"РРјСЏ: {state.get('name', '')}\n"
+            f"РўРµР»РµС„РѕРЅ: {state.get('phone', '')}\n"
+            f"РРЅС‚РµСЂРµСЃ: {state.get('product_interest', '')}"
         )
         await tg_bot.send_message(MANAGER_TELEGRAM_CHAT_ID, text)
     except Exception as e:
         log.error(f"Manager notification failed: {e}")
 
-async def handle_order_flow(user_id: str, user_message: str) -> str | None:
+async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None = None) -> str | None:
     try:
         channel, external_user_id = split_user_id(user_id)
         state = await get_order_state(user_id)
@@ -1173,23 +1205,23 @@ async def handle_order_flow(user_id: str, user_message: str) -> str | None:
                 "step": "name",
                 "product_interest": user_message.strip(),
             })
-            return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
+            return "РћС‚Р»РёС‡РЅРѕ, РѕС„РѕСЂРјРёРј Р·Р°РєР°Р·. РќР°РїРёС€РёС‚Рµ, РїРѕР¶Р°Р»СѓР№СЃС‚Р°, РІР°С€Рµ РёРјСЏ."
 
         step = state.get("step")
         if step == "name":
             name = user_message.strip()
             if len(name) < 2:
-                return "Напишите, пожалуйста, имя чуть подробнее."
+                return "РќР°РїРёС€РёС‚Рµ, РїРѕР¶Р°Р»СѓР№СЃС‚Р°, РёРјСЏ С‡СѓС‚СЊ РїРѕРґСЂРѕР±РЅРµРµ."
 
             state["name"] = name
             state["step"] = "phone"
             await set_order_state(user_id, state)
-            return "Спасибо. Теперь отправьте номер телефона для связи."
+            return "РЎРїР°СЃРёР±Рѕ. РўРµРїРµСЂСЊ РѕС‚РїСЂР°РІСЊС‚Рµ РЅРѕРјРµСЂ С‚РµР»РµС„РѕРЅР° РґР»СЏ СЃРІСЏР·Рё."
 
         if step == "phone":
             phone = user_message.strip()
             if not looks_like_phone(phone):
-                return "Похоже, это не номер телефона. Отправьте номер в формате +7..."
+                return "РџРѕС…РѕР¶Рµ, СЌС‚Рѕ РЅРµ РЅРѕРјРµСЂ С‚РµР»РµС„РѕРЅР°. РћС‚РїСЂР°РІСЊС‚Рµ РЅРѕРјРµСЂ РІ С„РѕСЂРјР°С‚Рµ +7..."
 
             state["phone"] = phone
             order_id = create_order(
@@ -1198,10 +1230,11 @@ async def handle_order_flow(user_id: str, user_message: str) -> str | None:
                 state.get("name", ""),
                 state.get("phone", ""),
                 state.get("product_interest", ""),
+                shop_id,
             )
             await notify_manager(order_id, state, channel, external_user_id)
             await clear_order_state(user_id)
-            return "Заказ принят. Менеджер скоро свяжется с вами для подтверждения."
+            return "Р—Р°РєР°Р· РїСЂРёРЅСЏС‚. РњРµРЅРµРґР¶РµСЂ СЃРєРѕСЂРѕ СЃРІСЏР¶РµС‚СЃСЏ СЃ РІР°РјРё РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ."
 
         await clear_order_state(user_id)
         return None
@@ -1209,14 +1242,18 @@ async def handle_order_flow(user_id: str, user_message: str) -> str | None:
         log.error(f"Order flow failed: {e}")
         return None
 
-async def ask_ai(user_id: str, user_message: str) -> str:
+async def ask_ai(user_id: str, user_message: str, shop_id: int | None = None) -> str:
     """
-    Groq API — llama-3.1-8b-instant.
-    Формат совместим с OpenAI: system идёт первым сообщением в messages[].
-    История: последние 6 сообщений (3 пары) — экономия токенов.
+    Groq API вЂ” llama-3.1-8b-instant.
+    Р¤РѕСЂРјР°С‚ СЃРѕРІРјРµСЃС‚РёРј СЃ OpenAI: system РёРґС‘С‚ РїРµСЂРІС‹Рј СЃРѕРѕР±С‰РµРЅРёРµРј РІ messages[].
+    РСЃС‚РѕСЂРёСЏ: РїРѕСЃР»РµРґРЅРёРµ 6 СЃРѕРѕР±С‰РµРЅРёР№ (3 РїР°СЂС‹) вЂ” СЌРєРѕРЅРѕРјРёСЏ С‚РѕРєРµРЅРѕРІ.
     """
     if not user_message or not user_message.strip():
-        return "Напишите, какую модель, размер или стиль кроссовок вы ищете."
+        return "РќР°РїРёС€РёС‚Рµ, РєР°РєСѓСЋ РјРѕРґРµР»СЊ, СЂР°Р·РјРµСЂ РёР»Рё СЃС‚РёР»СЊ РєСЂРѕСЃСЃРѕРІРѕРє РІС‹ РёС‰РµС‚Рµ."
+
+    shop_id = resolve_shop_id(shop_id)
+    if not is_subscription_active(shop_id):
+        return "РџРѕРґРїРёСЃРєР° РјР°РіР°Р·РёРЅР° РёСЃС‚РµРєР»Р°. РћР±СЂР°С‚РёС‚РµСЃСЊ Рє РІР»Р°РґРµР»СЊС†Сѓ РјР°РіР°Р·РёРЅР°."
 
     started_at = time.perf_counter()
     channel, external_user_id = split_user_id(user_id)
@@ -1225,7 +1262,7 @@ async def ask_ai(user_id: str, user_message: str) -> str:
 
     allowed, remaining = await check_rate_limit(user_id)
     if not allowed:
-        reply = "Слишком много сообщений за минуту. Подождите немного и напишите снова."
+        reply = "РЎР»РёС€РєРѕРј РјРЅРѕРіРѕ СЃРѕРѕР±С‰РµРЅРёР№ Р·Р° РјРёРЅСѓС‚Сѓ. РџРѕРґРѕР¶РґРёС‚Рµ РЅРµРјРЅРѕРіРѕ Рё РЅР°РїРёС€РёС‚Рµ СЃРЅРѕРІР°."
         try:
             log_analytics_event(
                 channel,
@@ -1235,13 +1272,14 @@ async def ask_ai(user_id: str, user_message: str) -> str:
                     "limit": RATE_LIMIT_MESSAGES,
                     "window_seconds": RATE_LIMIT_WINDOW_SECONDS,
                 },
+                shop_id,
             )
         except Exception:
             log.exception("Rate limit analytics failed")
         return reply
 
     try:
-        conversation_id = get_or_create_conversation(channel, external_user_id)
+        conversation_id = get_or_create_conversation(channel, external_user_id, shop_id)
         save_message(conversation_id, "user", user_message)
         await save_session_message(user_id, "user", user_message)
         history = await load_session_history(user_id)
@@ -1252,20 +1290,20 @@ async def ask_ai(user_id: str, user_message: str) -> str:
         await save_session_message(user_id, "user", user_message)
         history = await load_session_history(user_id)
 
-    order_reply = await handle_order_flow(user_id, user_message)
+    order_reply = await handle_order_flow(user_id, user_message, shop_id)
     if order_reply:
-        await save_ai_result(user_id, conversation_id, channel, user_message, order_reply, started_at, product_count, "order")
+        await save_ai_result(user_id, conversation_id, channel, user_message, order_reply, started_at, product_count, "order", shop_id=shop_id)
         return order_reply
 
     try:
-        relevant_items = get_relevant_sneakers(user_message, limit=5)
+        relevant_items = get_relevant_sneakers(user_message, limit=5, shop_id=shop_id)
         product_count = len(relevant_items)
         product_context = format_sneakers_context(relevant_items)
     except Exception:
         log.exception("RAG retrieval failed")
-        product_context = "Склад временно недоступен. Попроси клиента уточнить запрос или подождать немного."
+        product_context = "РЎРєР»Р°Рґ РІСЂРµРјРµРЅРЅРѕ РЅРµРґРѕСЃС‚СѓРїРµРЅ. РџРѕРїСЂРѕСЃРё РєР»РёРµРЅС‚Р° СѓС‚РѕС‡РЅРёС‚СЊ Р·Р°РїСЂРѕСЃ РёР»Рё РїРѕРґРѕР¶РґР°С‚СЊ РЅРµРјРЅРѕРіРѕ."
 
-    # Groq: system передаётся внутри messages как первый элемент
+    # Groq: system РїРµСЂРµРґР°С‘С‚СЃСЏ РІРЅСѓС‚СЂРё messages РєР°Рє РїРµСЂРІС‹Р№ СЌР»РµРјРµРЅС‚
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT.format(product_context=product_context)},
         *history,
@@ -1282,7 +1320,7 @@ async def ask_ai(user_id: str, user_message: str) -> str:
                 json={
                     "model": "llama-3.1-8b-instant",
                     "max_tokens": 250,
-                    "temperature": 0.4,  # ниже дефолта — меньше "фантазий" про товары
+                    "temperature": 0.4,  # РЅРёР¶Рµ РґРµС„РѕР»С‚Р° вЂ” РјРµРЅСЊС€Рµ "С„Р°РЅС‚Р°Р·РёР№" РїСЂРѕ С‚РѕРІР°СЂС‹
                     "messages": messages,
                 },
                 timeout=30.0,
@@ -1290,8 +1328,8 @@ async def ask_ai(user_id: str, user_message: str) -> str:
             resp.raise_for_status()
         except httpx.HTTPError as e:
             log.error(f"Groq request failed: {e}")
-            reply = fallback_reply(user_message)
-            await save_ai_result(user_id, conversation_id, channel, user_message, reply, started_at, product_count, "fallback")
+            reply = fallback_reply(user_message, shop_id)
+            await save_ai_result(user_id, conversation_id, channel, user_message, reply, started_at, product_count, "fallback", shop_id=shop_id)
             return reply
 
     data = resp.json()
@@ -1299,13 +1337,13 @@ async def ask_ai(user_id: str, user_message: str) -> str:
 
     if "error" in data:
         log.error(f"Groq error: {data['error']}")
-        reply = fallback_reply(user_message)
-        await save_ai_result(user_id, conversation_id, channel, user_message, reply, started_at, product_count, "fallback", usage)
+        reply = fallback_reply(user_message, shop_id)
+        await save_ai_result(user_id, conversation_id, channel, user_message, reply, started_at, product_count, "fallback", usage=usage, shop_id=shop_id)
         return reply
 
-    reply = data.get("choices", [{}])[0].get("message", {}).get("content", "Ошибка, попробуйте позже.")
+    reply = data.get("choices", [{}])[0].get("message", {}).get("content", "РћС€РёР±РєР°, РїРѕРїСЂРѕР±СѓР№С‚Рµ РїРѕР·Р¶Рµ.")
 
-    await save_ai_result(user_id, conversation_id, channel, user_message, reply, started_at, product_count, "ai", usage)
+    await save_ai_result(user_id, conversation_id, channel, user_message, reply, started_at, product_count, "ai", usage=usage, shop_id=shop_id)
     return reply
 
 async def save_ai_result(
@@ -1318,6 +1356,7 @@ async def save_ai_result(
     product_count: int,
     mode: str,
     usage: dict | None = None,
+    shop_id: int | None = None,
 ) -> None:
     latency_ms = int((time.perf_counter() - started_at) * 1000)
     usage = usage or {}
@@ -1341,40 +1380,42 @@ async def save_ai_result(
                 "prompt_tokens": usage.get("prompt_tokens", 0),
                 "completion_tokens": usage.get("completion_tokens", 0),
             },
+            shop_id,
         )
     except Exception:
         log.exception("Saving AI result failed")
 
-def fallback_reply(user_message: str) -> str:
-    """Простой SQL-ответ, если ИИ временно недоступен."""
+def fallback_reply(user_message: str, shop_id: int | None = None) -> str:
+    """РџСЂРѕСЃС‚РѕР№ SQL-РѕС‚РІРµС‚, РµСЃР»Рё РР РІСЂРµРјРµРЅРЅРѕ РЅРµРґРѕСЃС‚СѓРїРµРЅ."""
     try:
-        items = search_sneakers(user_message)[:3]
+        items = search_sneakers(user_message, shop_id)[:3]
     except Exception:
         log.exception("Fallback search failed")
-        return "Сейчас не получается проверить склад. Напишите, пожалуйста, модель и размер — менеджер уточнит наличие."
+        return "РЎРµР№С‡Р°СЃ РЅРµ РїРѕР»СѓС‡Р°РµС‚СЃСЏ РїСЂРѕРІРµСЂРёС‚СЊ СЃРєР»Р°Рґ. РќР°РїРёС€РёС‚Рµ, РїРѕР¶Р°Р»СѓР№СЃС‚Р°, РјРѕРґРµР»СЊ Рё СЂР°Р·РјРµСЂ вЂ” РјРµРЅРµРґР¶РµСЂ СѓС‚РѕС‡РЅРёС‚ РЅР°Р»РёС‡РёРµ."
 
     if not items:
-        return "Сейчас не вижу точного совпадения на складе. Напишите бренд, модель или нужный размер — проверю по каталогу."
+        return "РЎРµР№С‡Р°СЃ РЅРµ РІРёР¶Сѓ С‚РѕС‡РЅРѕРіРѕ СЃРѕРІРїР°РґРµРЅРёСЏ РЅР° СЃРєР»Р°РґРµ. РќР°РїРёС€РёС‚Рµ Р±СЂРµРЅРґ, РјРѕРґРµР»СЊ РёР»Рё РЅСѓР¶РЅС‹Р№ СЂР°Р·РјРµСЂ вЂ” РїСЂРѕРІРµСЂСЋ РїРѕ РєР°С‚Р°Р»РѕРіСѓ."
 
     lines = []
     for item in items:
-        status = "есть" if item.get("quantity", 0) > 0 else "нет в наличии"
+        status = "РµСЃС‚СЊ" if item.get("quantity", 0) > 0 else "РЅРµС‚ РІ РЅР°Р»РёС‡РёРё"
         lines.append(
             f"{item['brand']} {item['model']} {item.get('colorway') or ''}, "
-            f"размер {item['size']}, {item['price']}₸ — {status}"
+            f"СЂР°Р·РјРµСЂ {item['size']}, {item['price']}в‚ё вЂ” {status}"
         )
-    return "Нашёл по складу: " + "; ".join(lines)
+    return "РќР°С€С‘Р» РїРѕ СЃРєР»Р°РґСѓ: " + "; ".join(lines)
 
-# ─── Telegram ─────────────────────────────────────────────────────────
+# в”Ђв”Ђв”Ђ Telegram в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 tg_bot = Bot(token=TELEGRAM_BOT_TOKEN) if TELEGRAM_BOT_TOKEN else None
 tg_dp  = Dispatcher() if TELEGRAM_BOT_TOKEN else None
+shop_bots: dict[str, tuple[Bot, Dispatcher, dict]] = {}
 
 if tg_dp:
     @tg_dp.message(CommandStart())
     async def tg_start(msg: Message):
         await msg.answer(
-            "Привет! Я SoleBot — ваш консультант по кроссовкам. 👟\n"
-            "Спросите о любой модели — проверю наличие на складе!"
+            "РџСЂРёРІРµС‚! РЇ SoleBot вЂ” РІР°С€ РєРѕРЅСЃСѓР»СЊС‚Р°РЅС‚ РїРѕ РєСЂРѕСЃСЃРѕРІРєР°Рј. рџ‘џ\n"
+            "РЎРїСЂРѕСЃРёС‚Рµ Рѕ Р»СЋР±РѕР№ РјРѕРґРµР»Рё вЂ” РїСЂРѕРІРµСЂСЋ РЅР°Р»РёС‡РёРµ РЅР° СЃРєР»Р°РґРµ!"
         )
 
     @tg_dp.message()
@@ -1384,9 +1425,58 @@ if tg_dp:
         reply = await ask_ai(user_id, msg.text or "")
         await msg.answer(reply)
 
-# ─── WhatsApp ─────────────────────────────────────────────────────────
+async def register_shop_bot(shop: dict) -> None:
+    try:
+        secret = shop.get("tg_webhook_secret")
+        token = shop.get("tg_token")
+        if not secret or not token:
+            return
+
+        bot = Bot(token=token)
+        dp = Dispatcher()
+
+        @dp.message(CommandStart())
+        async def shop_start(msg: Message):
+            await msg.answer(
+                f"РџСЂРёРІРµС‚! РЇ Р±РѕС‚ РјР°РіР°Р·РёРЅР° {shop.get('name')}. "
+                "РЎРїСЂРѕСЃРёС‚Рµ Рѕ Р»СЋР±РѕР№ РјРѕРґРµР»Рё РєСЂРѕСЃСЃРѕРІРѕРє вЂ” РїСЂРѕРІРµСЂСЋ РЅР°Р»РёС‡РёРµ!"
+            )
+
+        @dp.message()
+        async def shop_message(msg: Message):
+            user_id = f"tg_{shop['id']}_{msg.from_user.id}"
+            await msg.bot.send_chat_action(msg.chat.id, "typing")
+            reply = await ask_ai(user_id, msg.text or "", shop_id=shop["id"])
+            await msg.answer(reply)
+
+        shop_bots[secret] = (bot, dp, shop)
+
+        if TELEGRAM_WEBHOOK:
+            webhook_url = TELEGRAM_WEBHOOK.rstrip("/") + f"/tg/{secret}/webhook"
+            await bot.set_webhook(webhook_url, drop_pending_updates=True)
+            log.info(f"Telegram webhook СѓСЃС‚Р°РЅРѕРІР»РµРЅ РґР»СЏ {shop.get('name')}: {webhook_url}")
+    except Exception as e:
+        log.error(f"Register shop bot failed for shop {shop.get('id')}: {e}")
+
+async def setup_shop_bots() -> None:
+    try:
+        for shop in get_all_active_telegram_shops():
+            await register_shop_bot(shop)
+        log.info(f"Registered {len(shop_bots)} shop Telegram bots")
+    except Exception as e:
+        log.error(f"Setup shop bots failed: {e}")
+
+async def close_shop_bots() -> None:
+    for bot, _, shop in shop_bots.values():
+        try:
+            await bot.session.close()
+        except Exception as e:
+            log.error(f"Close shop bot failed for shop {shop.get('id')}: {e}")
+    shop_bots.clear()
+
+# в”Ђв”Ђв”Ђ WhatsApp в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 async def send_whatsapp(to: str, text: str):
-    """Отправить сообщение через WhatsApp Business API"""
+    """РћС‚РїСЂР°РІРёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ С‡РµСЂРµР· WhatsApp Business API"""
     async with httpx.AsyncClient() as client:
         await client.post(
             f"https://graph.facebook.com/v18.0/{WHATSAPP_NUMBER_ID}/messages",
@@ -1399,9 +1489,9 @@ async def send_whatsapp(to: str, text: str):
             }
         )
 
-# ─── Instagram ────────────────────────────────────────────────────────
+# в”Ђв”Ђв”Ђ Instagram в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 async def send_instagram(recipient_id: str, text: str):
-    """Отправить сообщение через Instagram Messenger API"""
+    """РћС‚РїСЂР°РІРёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ С‡РµСЂРµР· Instagram Messenger API"""
     async with httpx.AsyncClient() as client:
         await client.post(
             "https://graph.facebook.com/v18.0/me/messages",
@@ -1412,11 +1502,12 @@ async def send_instagram(recipient_id: str, text: str):
             }
         )
 
-# ─── FastAPI app ──────────────────────────────────────────────────────
+# в”Ђв”Ђв”Ђ FastAPI app в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         ensure_app_tables()
+        ensure_default_shop_data()
         log.info("Database app tables are ready")
     except Exception as e:
         log.error(f"Database app table setup failed: {e}")
@@ -1425,10 +1516,12 @@ async def lifespan(app: FastAPI):
         try:
             webhook_url = TELEGRAM_WEBHOOK.rstrip("/") + "/tg/webhook"
             await tg_bot.set_webhook(webhook_url, drop_pending_updates=True)
-            log.info(f"Telegram webhook установлен: {webhook_url}")
+            log.info(f"Telegram webhook СѓСЃС‚Р°РЅРѕРІР»РµРЅ: {webhook_url}")
         except Exception as e:
-            log.error(f"Ошибка установки webhook: {e}")
+            log.error(f"РћС€РёР±РєР° СѓСЃС‚Р°РЅРѕРІРєРё webhook: {e}")
+    await setup_shop_bots()
     yield
+    await close_shop_bots()
     await close_redis()
     if tg_bot:
         try:
@@ -1445,11 +1538,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Telegram webhook ──
+# в”Ђв”Ђ Telegram webhook в”Ђв”Ђ
 @app.post("/tg/webhook")
 async def telegram_webhook(request: Request):
     if not tg_bot:
-        raise HTTPException(503, "Telegram не настроен")
+        raise HTTPException(503, "Telegram РЅРµ РЅР°СЃС‚СЂРѕРµРЅ")
     try:
         data = await request.json()
         update = types.Update.model_validate(data)
@@ -1459,14 +1552,32 @@ async def telegram_webhook(request: Request):
         return {"ok": True, "ignored": True}
     return {"ok": True}
 
-# ── WhatsApp webhook ──
+@app.post("/tg/{webhook_secret}/webhook")
+async def telegram_shop_webhook(webhook_secret: str, request: Request):
+    if webhook_secret not in shop_bots:
+        shop = get_shop_by_webhook_secret(webhook_secret)
+        if not shop:
+            raise HTTPException(404, "Shop not found")
+        await register_shop_bot(shop)
+
+    bot, dp, shop = shop_bots[webhook_secret]
+    try:
+        data = await request.json()
+        update = types.Update.model_validate(data)
+        await dp.feed_update(bot, update)
+    except Exception as e:
+        log.error(f"Telegram shop webhook processing failed [{webhook_secret}]: {e}")
+        return {"ok": True, "ignored": True}
+    return {"ok": True, "shop_id": shop.get("id")}
+
+# в”Ђв”Ђ WhatsApp webhook в”Ђв”Ђ
 @app.get("/wa/webhook")
 async def whatsapp_verify(request: Request):
-    """Meta требует верификацию webhook"""
+    """Meta С‚СЂРµР±СѓРµС‚ РІРµСЂРёС„РёРєР°С†РёСЋ webhook"""
     p = request.query_params
     if p.get("hub.verify_token") == WHATSAPP_VERIFY:
         return PlainTextResponse(p.get("hub.challenge", ""))
-    raise HTTPException(403, "Неверный verify token")
+    raise HTTPException(403, "РќРµРІРµСЂРЅС‹Р№ verify token")
 
 @app.post("/wa/webhook")
 async def whatsapp_message(request: Request):
@@ -1482,16 +1593,16 @@ async def whatsapp_message(request: Request):
         reply = await ask_ai(user_id, text)
         await send_whatsapp(phone, reply)
     except (KeyError, IndexError):
-        pass  # не все события содержат сообщения
+        pass  # РЅРµ РІСЃРµ СЃРѕР±С‹С‚РёСЏ СЃРѕРґРµСЂР¶Р°С‚ СЃРѕРѕР±С‰РµРЅРёСЏ
     return {"status": "ok"}
 
-# ── Instagram webhook ──
+# в”Ђв”Ђ Instagram webhook в”Ђв”Ђ
 @app.get("/ig/webhook")
 async def instagram_verify(request: Request):
     p = request.query_params
     if p.get("hub.verify_token") == INSTAGRAM_VERIFY:
         return PlainTextResponse(p.get("hub.challenge", ""))
-    raise HTTPException(403, "Неверный verify token")
+    raise HTTPException(403, "РќРµРІРµСЂРЅС‹Р№ verify token")
 
 @app.post("/ig/webhook")
 async def instagram_message(request: Request):
@@ -1509,7 +1620,7 @@ async def instagram_message(request: Request):
         pass
     return {"status": "ok"}
 
-# ── Web Chat API (для sneaker_bot.html) ──
+# в”Ђв”Ђ Web Chat API (РґР»СЏ sneaker_bot.html) в”Ђв”Ђ
 @app.post("/api/chat")
 async def web_chat(request: Request):
     data = await request.json()
@@ -1520,7 +1631,7 @@ async def web_chat(request: Request):
     reply = await ask_ai(user_id, text)
     return {"reply": reply}
 
-# ── Healthcheck ──
+# в”Ђв”Ђ Healthcheck в”Ђв”Ђ
 @app.get("/")
 async def health():
     db_status = get_database_status()
@@ -1540,15 +1651,17 @@ async def health():
 @app.get("/admin/stats")
 async def admin_stats(request: Request):
     require_admin(request)
+    shop_id = get_default_shop_id()
 
     return {
         "database": "postgresql" if USE_POSTGRES else "sqlite",
-        "sneakers": count_rows("sneakers"),
-        "orders": count_rows("orders"),
-        "conversations": count_rows("conversations"),
-        "messages": count_rows("messages"),
-        "analytics_events": count_rows("analytics_events"),
-        "total_tokens": count_logged_tokens(),
+        "shop_id": shop_id,
+        "sneakers": count_shop_rows("sneakers", shop_id),
+        "orders": count_shop_rows("orders", shop_id),
+        "conversations": count_shop_rows("conversations", shop_id),
+        "messages": count_shop_messages(shop_id),
+        "analytics_events": count_shop_rows("analytics_events", shop_id),
+        "total_tokens": count_logged_tokens(shop_id),
     }
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -1559,26 +1672,42 @@ async def admin_page(request: Request):
 @app.get("/admin/products")
 async def admin_products(request: Request, limit: int = 100, offset: int = 0):
     require_admin(request)
+    shop_id = get_default_shop_id()
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     return {
-        "count": count_rows("sneakers"),
+        "shop_id": shop_id,
+        "count": count_shop_rows("sneakers", shop_id),
         "limit": limit,
         "offset": offset,
-        "items": list_products(limit=limit, offset=offset),
+        "items": list_products(limit=limit, offset=offset, shop_id=shop_id),
     }
 
 @app.get("/admin/orders")
 async def admin_orders(request: Request, limit: int = 100, offset: int = 0):
     require_admin(request)
+    shop_id = get_default_shop_id()
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     return {
-        "count": count_rows("orders"),
+        "shop_id": shop_id,
+        "count": count_shop_rows("orders", shop_id),
         "limit": limit,
         "offset": offset,
-        "items": list_orders(limit=limit, offset=offset),
+        "items": list_orders(limit=limit, offset=offset, shop_id=shop_id),
     }
+
+@app.get("/admin/shops")
+async def admin_shops(request: Request):
+    require_admin(request)
+    shops = list_shops()
+    for shop in shops:
+        secret = shop.get("tg_webhook_secret")
+        shop["telegram_webhook_url"] = (
+            TELEGRAM_WEBHOOK.rstrip("/") + f"/tg/{secret}/webhook"
+            if TELEGRAM_WEBHOOK and secret else None
+        )
+    return {"shops": shops, "registered_bots": len(shop_bots)}
 
 @app.get("/admin/import-template")
 async def admin_import_template(request: Request):
@@ -1593,7 +1722,7 @@ async def admin_import_template(request: Request):
 @app.get("/admin/export")
 async def admin_export(request: Request):
     require_admin(request)
-    csv_text = products_to_csv(list_products(limit=10000))
+    csv_text = products_to_csv(list_products(limit=10000, shop_id=get_default_shop_id()))
     return PlainTextResponse(
         csv_text,
         media_type="text/csv",
@@ -1631,7 +1760,7 @@ async def admin_import(request: Request, file: UploadFile = File(...), replace: 
         if not result["valid"]:
             raise ValueError("; ".join(result["errors"][:10]))
         products = result["products"]
-        imported = import_products(products, replace=replace)
+        imported = import_products(products, replace=replace, shop_id=get_default_shop_id())
         log_analytics_event(
             "admin",
             "products_imported",
