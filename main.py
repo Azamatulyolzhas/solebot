@@ -1,8 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from cache import close_redis
 from routes.admin import router as admin_router
@@ -13,6 +15,8 @@ from telegram_bot import close_default_bot, close_shop_bots, setup_default_webho
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+
+ADMIN_DIR = Path(__file__).parent / "admin"
 
 
 @asynccontextmanager
@@ -43,6 +47,7 @@ app.add_middleware(
 
 app.include_router(api_router)
 app.include_router(admin_router)
+app.mount("/admin/static", StaticFiles(directory=str(ADMIN_DIR)), name="admin_static")
 
 if __name__ == "__main__":
     import uvicorn

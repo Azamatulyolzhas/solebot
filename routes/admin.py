@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse
@@ -8,10 +9,19 @@ from admin_service import (
     count_rows,
     count_shop_messages,
     count_shop_rows,
+    list_recent_messages,
     require_admin,
 )
-from admin_ui import render_admin_page
-from config import TELEGRAM_WEBHOOK_URL, USE_POSTGRES
+from config import ADMIN_TOKEN, TELEGRAM_WEBHOOK_URL, USE_POSTGRES
+from conversations import log_analytics_event
+from products import import_products, list_products, products_to_csv, validate_product_csv
+from orders import list_orders
+from shops import get_default_shop_id, list_shops
+from telegram_bot import shop_bots
+
+log = logging.getLogger(__name__)
+
+ADMIN_INDEX = Path(__file__).resolve().parent.parent / "admin" / "index.html"
 from conversations import log_analytics_event
 from products import import_products, list_products, products_to_csv, validate_product_csv
 from orders import list_orders
@@ -41,9 +51,21 @@ async def admin_stats(request: Request):
 
 
 @router.get("", response_class=HTMLResponse)
-async def admin_page(request: Request):
+async def admin_page():
+    if not ADMIN_TOKEN:
+        raise HTTPException(404, "Not found")
+    return HTMLResponse(ADMIN_INDEX.read_text(encoding="utf-8"))
+
+
+@router.get("/messages")
+async def admin_messages(request: Request, limit: int = 50):
     require_admin(request)
-    return HTMLResponse(render_admin_page(request.query_params.get("token", "")))
+    shop_id = get_default_shop_id()
+    limit = max(1, min(limit, 200))
+    return {
+        "shop_id": shop_id,
+        "items": list_recent_messages(limit=limit, shop_id=shop_id),
+    }
 
 
 @router.get("/products")

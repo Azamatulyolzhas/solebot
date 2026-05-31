@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import PlainTextResponse
 
 from ai import ask_ai
+from models import ChatRequest, ChatResponse
 from config import (
     INSTAGRAM_TOKEN,
     INSTAGRAM_VERIFY_TOKEN,
@@ -41,15 +42,11 @@ async def health():
     }
 
 
-@router.post("/api/chat")
-async def web_chat(request: Request):
-    data = await request.json()
-    session_id = data.get("session_id", "web_anon")
-    text = data.get("message", "")
-    user_id = f"web_{session_id}"
-
-    reply = await ask_ai(user_id, text)
-    return {"reply": reply}
+@router.post("/api/chat", response_model=ChatResponse)
+async def web_chat(body: ChatRequest):
+    user_id = f"web_{body.session_id}"
+    reply = await ask_ai(user_id, body.message)
+    return ChatResponse(reply=reply)
 
 
 @router.post("/tg/webhook")

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SoleBot Admin</title>
+  <link rel="stylesheet" href="/admin/static/styles.css">
+</head>
+<body>
+  <div id="login-screen" class="login-screen hidden">
+    <form id="login-form" class="login-card">
+      <h1>SoleBot</h1>
+      <p>Введите admin-токен для входа</p>
+      <input type="password" id="token-input" placeholder="ADMIN_TOKEN" autocomplete="off" required>
+      <button type="submit">Войти</button>
+      <p class="login-hint">Токен задаётся в переменной <code>ADMIN_TOKEN</code></p>
+    </form>
+  </div>
+
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">S</span>
+        <div>
+          <strong>SoleBot</strong>
+          <small>Admin panel</small>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-tab="overview">Обзор</button>
+        <button class="nav-item" data-tab="products">Каталог</button>
+        <button class="nav-item" data-tab="orders">Заказы</button>
+        <button class="nav-item" data-tab="import">Импорт CSV</button>
+        <button class="nav-item" data-tab="messages">Сообщения</button>
+      </nav>
+      <div class="sidebar-foot">
+        <span id="db-badge" class="badge">—</span>
+        <button id="logout-btn" class="ghost-btn" type="button">Выйти</button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">Обзор</h1>
+          <p id="page-subtitle">Статистика магазина и активность бота</p>
+        </div>
+        <div class="topbar-actions">
+          <a id="export-link" class="btn secondary" href="#">Экспорт CSV</a>
+          <button id="refresh-btn" class="btn" type="button">Обновить</button>
+        </div>
+      </header>
+
+      <section id="tab-overview" class="tab active">
+        <div id="stats-grid" class="stats-grid"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Последние сообщения</h2>
+          </div>
+          <div id="overview-messages" class="message-list"></div>
+        </div>
+      </section>
+
+      <section id="tab-products" class="tab">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Каталог</h2>
+            <span id="products-count" class="muted"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Бренд</th>
+                  <th>Модель</th>
+                  <th>Цвет</th>
+                  <th>Размер</th>
+                  <th>Кол-во</th>
+                  <th>Цена</th>
+                  <th>Категория</th>
+                </tr>
+              </thead>
+              <tbody id="products-body"></tbody>
+            </table>
+          </div>
+          <div class="pager">
+            <button id="products-prev" class="btn secondary" type="button">Назад</button>
+            <span id="products-page-info" class="muted"></span>
+            <button id="products-next" class="btn secondary" type="button">Вперёд</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-orders" class="tab">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Заказы</h2>
+            <span id="orders-count" class="muted"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Канал</th>
+                  <th>Клиент</th>
+                  <th>Имя</th>
+                  <th>Телефон</th>
+                  <th>Интерес</th>
+                  <th>Статус</th>
+                  <th>Дата</th>
+                </tr>
+              </thead>
+              <tbody id="orders-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-import" class="tab">
+        <div class="import-grid">
+          <div class="panel">
+            <div class="panel-head"><h2>Загрузка CSV</h2></div>
+            <div class="panel-body">
+              <p class="muted">Формат: brand, model, colorway, size, quantity, price, category, gender</p>
+              <input type="file" id="csv-file" accept=".csv">
+              <div class="btn-row">
+                <button id="preview-btn" class="btn secondary" type="button">Предпросмотр</button>
+                <button id="import-btn" class="btn" type="button">Обновить каталог</button>
+                <button id="replace-btn" class="btn danger" type="button">Заменить полностью</button>
+              </div>
+              <a id="template-link" class="link" href="#">Скачать шаблон CSV</a>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Результат</h2></div>
+            <div id="import-result" class="panel-body muted">Выберите файл и нажмите «Предпросмотр»</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-messages" class="tab">
+        <div class="panel">
+          <div class="panel-head"><h2>История диалогов</h2></div>
+          <div id="messages-list" class="message-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/admin/static/app.js"></script>
+</body>
+</html>

@@ -221,146 +221,337 @@ def replace_products(products: list[dict]) -> int:
     return import_products(products, replace=True)
 
 
-def search_sneakers(query: str, shop_id: int | None = None) -> list[dict]:
-    """РџРѕРёСЃРє РїРѕ СЃРєР»Р°РґСѓ вЂ” РїРѕ Р±СЂРµРЅРґСѓ, РјРѕРґРµР»Рё, СЂР°СЃС†РІРµС‚РєРµ, РєР°С‚РµРіРѕСЂРёРё"""
-    words = [w for w in query.lower().split() if len(w) > 2]
-    if not words:
-        return []
-    
-    ph = db_placeholder()
-    shop_id = resolve_shop_id(shop_id)
-    conditions = " OR ".join(
-        [f"(LOWER(brand) LIKE {ph} OR LOWER(model) LIKE {ph} OR LOWER(colorway) LIKE {ph} OR LOWER(category) LIKE {ph})"
-         for _ in words]
-    )
-    params = []
-    for w in words:
-        params.extend([f"%{w}%"] * 4)
-    
-    return fetch_all(
-        f"SELECT * FROM sneakers WHERE shop_id = {ph} AND ({conditions}) ORDER BY brand, model, size",
-        [shop_id, *params],
-    )
+# ── Константы ──────────────────────────────────────────────────────────────────
+
+STOP_WORDS = {
+    "есть", "ли", "какие", "какой", "какая", "какое", "хочу", "нужны", "нужен",
+    "можно", "подскажи", "скажи", "покажи", "что", "это", "мне", "для", "вы",
+    "есть", "нет", "как", "про", "по", "на", "из",
+}
+
+BROWSE_TERMS = {
+    "кроссы", "кроссовки", "кроссовок", "обувь", "sneakers", "shoes", "кросс",
+    "ассортимент", "каталог", "модели", "что есть", "все модели",
+}
+
+# Алиасы: то, что пишет клиент → реальное название в БД
+ALIASES: dict[str, str] = {
+    "af1": "air force 1",
+    "af 1": "air force 1",
+    "аф1": "air force 1",
+    "аф 1": "air force 1",
+    "nb": "new balance",
+    "нб": "new balance",
+    "aj1": "air jordan 1",
+    "aj 1": "air jordan 1",
+    "sb": "dunk",
+    "ub": "ultraboost",
+    "nm": "nmd",
+    "yzy": "yeezy",
+    "изи": "yeezy",
+    "иизи": "yeezy",
+    "dunk low": "dunk low",
+    "данк": "dunk",
+    "данки": "dunk",
+    "форсы": "air force",
+    "форс": "air force",
+    "джорданы": "jordan",
+    "джордан": "jordan",
+    "самба": "samba",
+    "стэн смит": "stan smith",
+    "стэнсмит": "stan smith",
+}
+
+# Максимум символов в промпте под каталог — ~1800 токенов
+CATALOG_CHAR_LIMIT = 3000
+# Сколько SKU вставляем при точном запросе
+SKU_DETAIL_LIMIT = 20
+
+
+# ── Вспомогательные ────────────────────────────────────────────────────────────
+
+def normalize_query(query: str) -> str:
+    """Раскрываем алиасы: 'af1 42' → 'air force 1 42'."""
+    q = query.lower().strip()
+    for alias, expansion in sorted(ALIASES.items(), key=lambda x: -len(x[0])):
+        if alias in q:
+            q = q.replace(alias, expansion)
+    return q
+
 
 def extract_requested_size(query: str) -> float | None:
-    match = re.search(r"\b(?:СЂ(?:Р°Р·РјРµСЂ)?\.?\s*)?([3-4][0-9](?:[.,]5)?)\b", query.lower())
+    match = re.search(r"\b(?:р(?:азмер)?\.?\s*)?([3-4][0-9](?:[.,]5)?)\b", query.lower())
     if not match:
         return None
     return float(match.group(1).replace(",", "."))
 
-def get_relevant_sneakers(query: str, limit: int = 5, shop_id: int | None = None) -> list[dict]:
-    """RAG retrieval: РґРѕСЃС‚Р°С‘Рј С‚РѕР»СЊРєРѕ СЃР°РјС‹Рµ РїРѕС…РѕР¶РёРµ С‚РѕРІР°СЂС‹ РґР»СЏ РїСЂРѕРјРїС‚Р°."""
-    words = [w for w in re.findall(r"[\w-]+", query.lower()) if len(w) > 2]
-    requested_size = extract_requested_size(query)
-    if not words and requested_size is None:
-        return []
 
+def is_browse_query(query: str) -> bool:
+    q = query.lower()
+    if any(term in q for term in BROWSE_TERMS):
+        return True
+    words = [w for w in re.findall(r"[\w-]+", q) if len(w) > 2 and w not in STOP_WORDS]
+    return not words and extract_requested_size(query) is None
+
+
+# ── Запросы к БД ───────────────────────────────────────────────────────────────
+
+def list_in_stock_brands(shop_id: int | None = None) -> list[str]:
     ph = db_placeholder()
     shop_id = resolve_shop_id(shop_id)
-    score_params: list = []
-    where_params: list = []
-    score_parts = []
-    where_parts = []
+    rows = fetch_all(
+        f"SELECT DISTINCT brand FROM sneakers WHERE shop_id = {ph} AND quantity > 0 ORDER BY brand",
+        (shop_id,),
+    )
+    return [row["brand"] for row in rows]
 
-    for word in words:
-        like = f"%{word}%"
-        score_parts.append(
+
+def get_models_summary(shop_id: int | None = None, limit: int = 60) -> list[dict]:
+    """Уникальные модели, сгруппированные — для обзора каталога.
+
+    Работает при любом размере БД: GROUP BY не тащит все SKU.
+    """
+    ph = db_placeholder()
+    shop_id = resolve_shop_id(shop_id)
+    if USE_POSTGRES:
+        return fetch_all(
             f"""
-            CASE WHEN LOWER(brand) LIKE {ph} THEN 5 ELSE 0 END +
-            CASE WHEN LOWER(model) LIKE {ph} THEN 4 ELSE 0 END +
-            CASE WHEN LOWER(colorway) LIKE {ph} THEN 2 ELSE 0 END +
-            CASE WHEN LOWER(category) LIKE {ph} THEN 1 ELSE 0 END +
-            CASE WHEN LOWER(gender) LIKE {ph} THEN 1 ELSE 0 END
-            """
+            SELECT brand, model,
+                   MIN(price)  AS min_price,
+                   MAX(price)  AS max_price,
+                   STRING_AGG(DISTINCT CAST(size AS TEXT), ',' ORDER BY CAST(size AS TEXT)) AS sizes,
+                   SUM(quantity) AS total_qty
+            FROM sneakers
+            WHERE shop_id = {ph} AND quantity > 0
+            GROUP BY brand, model
+            ORDER BY brand, model
+            LIMIT {ph}
+            """,
+            (shop_id, limit),
         )
-        score_params.extend([like, like, like, like, like])
-        where_parts.append(
-            f"(LOWER(brand) LIKE {ph} OR LOWER(model) LIKE {ph} OR LOWER(colorway) LIKE {ph} OR LOWER(category) LIKE {ph} OR LOWER(gender) LIKE {ph})"
+    return fetch_all(
+        f"""
+        SELECT brand, model,
+               MIN(price) AS min_price,
+               MAX(price) AS max_price,
+               GROUP_CONCAT(DISTINCT CAST(CAST(size AS INTEGER) AS TEXT)) AS sizes,
+               SUM(quantity) AS total_qty
+        FROM sneakers
+        WHERE shop_id = {ph} AND quantity > 0
+        GROUP BY brand, model
+        ORDER BY brand, model
+        LIMIT {ph}
+        """,
+        (shop_id, limit),
+    )
+
+
+def search_models(words: list[str], shop_id: int) -> list[tuple[str, str]]:
+    """Шаг 1: ищем уникальные (brand, model) по ключевым словам.
+
+    Возвращает только пары без всех SKU — дёшево на большой БД.
+    """
+    if not words:
+        return []
+    ph = db_placeholder()
+    parts = []
+    params: list = []
+    for w in words:
+        like = f"%{w}%"
+        parts.append(
+            f"(LOWER(brand) LIKE {ph} OR LOWER(model) LIKE {ph} "
+            f"OR LOWER(colorway) LIKE {ph} OR LOWER(category) LIKE {ph})"
         )
-        where_params.extend([like, like, like, like, like])
+        params.extend([like, like, like, like])
 
-    if requested_size is not None:
-        score_parts.append(f"CASE WHEN size = {ph} THEN 6 ELSE 0 END")
-        score_params.append(requested_size)
-        if not words:
-            where_parts.append(f"size = {ph}")
-            where_params.append(requested_size)
+    where = " OR ".join(parts)
+    rows = fetch_all(
+        f"""
+        SELECT DISTINCT brand, model
+        FROM sneakers
+        WHERE shop_id = {ph} AND quantity > 0 AND ({where})
+        ORDER BY brand, model
+        LIMIT 15
+        """,
+        [shop_id, *params],
+    )
+    return [(r["brand"], r["model"]) for r in rows]
 
-    score_sql = " + ".join(score_parts) or "0"
-    where_sql = " OR ".join(where_parts) or "1=1"
-    params = [*score_params, shop_id, *where_params]
-    params.append(limit)
+
+def fetch_skus_for_models(
+    models: list[tuple[str, str]], size: float | None, shop_id: int, limit: int = SKU_DETAIL_LIMIT
+) -> list[dict]:
+    """Шаг 2: по найденным моделям берём конкретные SKU (с размером если нужен)."""
+    if not models:
+        return []
+    ph = db_placeholder()
+    conds = []
+    params: list = []
+    for brand, model in models:
+        conds.append(f"(LOWER(brand) = {ph} AND LOWER(model) = {ph})")
+        params.extend([brand.lower(), model.lower()])
+
+    model_where = " OR ".join(conds)
+    size_filter = f"AND size = {ph}" if size is not None else ""
+    if size is not None:
+        params.append(size)
+    params.extend([shop_id, limit])
 
     return fetch_all(
         f"""
-        SELECT *, ({score_sql}) AS relevance
+        SELECT brand, model, colorway, size, price, quantity, category, gender
         FROM sneakers
-        WHERE shop_id = {ph} AND ({where_sql}) AND quantity > 0
-        ORDER BY relevance DESC, brand, model, size
+        WHERE ({model_where}) {size_filter}
+          AND shop_id = {ph} AND quantity > 0
+        ORDER BY brand, model, size
         LIMIT {ph}
         """,
         params,
     )
 
-def format_sneakers_context(items: list[dict]) -> str:
-    if not items:
-        return "РќРµС‚ С‚РѕС‡РЅС‹С… СЃРѕРІРїР°РґРµРЅРёР№ РІ РЅР°Р»РёС‡РёРё. РџРѕРїСЂРѕСЃРё СѓС‚РѕС‡РЅРёС‚СЊ Р±СЂРµРЅРґ, РјРѕРґРµР»СЊ, СЂР°Р·РјРµСЂ РёР»Рё СЃС‚РёР»СЊ."
 
+# ── Форматирование контекста ────────────────────────────────────────────────────
+
+def _fmt_models_block(rows: list[dict], header: str = "") -> str:
+    lines = [header] if header else []
+    for r in rows:
+        price = r.get("min_price") or r.get("price") or 0
+        max_p = r.get("max_price")
+        price_str = f"от {price}₸" if max_p and max_p != price else f"{price}₸"
+        sizes = r.get("sizes") or "—"
+        qty = r.get("total_qty") or r.get("quantity") or 0
+        lines.append(f"{r['brand']} {r['model']}|{price_str}|р.{sizes}|остаток {qty}")
+    return "\n".join(lines)
+
+
+def _fmt_skus_block(items: list[dict]) -> str:
     lines = []
-    for item in items:
-        colorway = item.get("colorway") or ""
-        category = item.get("category") or ""
+    for s in items:
+        colorway = s.get("colorway") or ""
         lines.append(
-            f"{item['brand']} {item['model']} {colorway}|"
-            f"СЂР°Р·РјРµСЂ {item['size']}|{item['price']}в‚ё|"
-            f"РѕСЃС‚Р°С‚РѕРє {item['quantity']}|{category}"
+            f"  {s['brand']} {s['model']} {colorway}|р.{s['size']}|{s['price']}₸|qty {s['quantity']}"
         )
     return "\n".join(lines)
 
-def check_availability(brand: str = "", model: str = "", size: float = None) -> list[dict]:
-    """РўРѕС‡РЅР°СЏ РїСЂРѕРІРµСЂРєР° РЅР°Р»РёС‡РёСЏ"""
-    conds, params = ["1=1"], []
+
+def _trim_to_limit(text: str, limit: int = CATALOG_CHAR_LIMIT) -> str:
+    if len(text) <= limit:
+        return text
+    lines = text.splitlines()
+    out = []
+    total = 0
+    for line in lines:
+        if total + len(line) + 1 > limit:
+            out.append("... (показаны первые модели)")
+            break
+        out.append(line)
+        total += len(line) + 1
+    return "\n".join(out)
+
+
+# ── Главная функция RAG ────────────────────────────────────────────────────────
+
+def build_product_context(query: str, shop_id: int | None = None) -> tuple[str, int]:
+    """Строим контекст для промпта. Масштабируется на любой размер каталога.
+
+    Стратегия:
+    - Обзорный запрос («кроссы», «что есть») → компактный каталог (grouped, с лимитом токенов)
+    - Конкретный запрос («Nike Air Force 42») → только совпадающие SKU + список брендов
+    - Всегда ограничиваем размер текста CATALOG_CHAR_LIMIT символами
+    """
+    shop_id = resolve_shop_id(shop_id)
+    normalized = normalize_query(query)
+    brands = list_in_stock_brands(shop_id)
+    brands_line = f"Бренды на складе: {', '.join(brands)}" if brands else ""
+
+    # ── Обзорный запрос ──────────────────────────────────────────────────────
+    if is_browse_query(query):
+        models = get_models_summary(shop_id, limit=60)
+        if not models:
+            return "Каталог пуст.", 0
+        body = _fmt_models_block(models, header=brands_line)
+        return _trim_to_limit(body), len(models)
+
+    # ── Конкретный запрос ────────────────────────────────────────────────────
+    size = extract_requested_size(normalized)
+    words = [
+        w for w in re.findall(r"[\w-]+", normalized)
+        if len(w) > 2 and w not in STOP_WORDS
+    ]
+
+    if not words and size is None:
+        # нечего искать — возвращаем обзор
+        models = get_models_summary(shop_id, limit=60)
+        body = _fmt_models_block(models, header=brands_line)
+        return _trim_to_limit(body), len(models)
+
+    matched_models = search_models(words, shop_id)
+
+    if not matched_models:
+        # ничего не нашли — даём весь каталог сжато
+        models = get_models_summary(shop_id, limit=60)
+        body = _fmt_models_block(models, header=brands_line)
+        return _trim_to_limit(body), 0
+
+    skus = fetch_skus_for_models(matched_models, size, shop_id)
+    if not skus:
+        # модели есть, но нужного размера нет
+        skus = fetch_skus_for_models(matched_models, None, shop_id)
+
+    details = _fmt_skus_block(skus)
+    # Добавляем строку брендов чтобы бот не думал что в магазине только Nike
+    ctx = f"{brands_line}\n\nПодходящие позиции:\n{details}" if brands_line else f"Подходящие позиции:\n{details}"
+    return _trim_to_limit(ctx), len(skus)
+
+
+# ── search_sneakers (для fallback без Groq) ───────────────────────────────────
+
+def search_sneakers(query: str, shop_id: int | None = None) -> list[dict]:
+    """Поиск для fallback — возвращает сырые строки."""
+    normalized = normalize_query(query)
+    words = [w for w in re.findall(r"[\w-]+", normalized) if len(w) > 2 and w not in STOP_WORDS]
+    shop_id = resolve_shop_id(shop_id)
+
+    if not words:
+        return []
+
     ph = db_placeholder()
-    if brand:
-        conds.append(f"LOWER(brand) LIKE {ph}")
-        params.append(f"%{brand.lower()}%")
-    if model:
-        conds.append(f"LOWER(model) LIKE {ph}")
-        params.append(f"%{model.lower()}%")
-    if size:
-        conds.append(f"size = {ph}")
-        params.append(size)
-    
+    conds = []
+    params: list = []
+    for w in words:
+        like = f"%{w}%"
+        conds.append(
+            f"(LOWER(brand) LIKE {ph} OR LOWER(model) LIKE {ph} "
+            f"OR LOWER(colorway) LIKE {ph} OR LOWER(category) LIKE {ph})"
+        )
+        params.extend([like, like, like, like])
+
     return fetch_all(
-        f"SELECT * FROM sneakers WHERE {' AND '.join(conds)} ORDER BY size",
-        params
+        f"""
+        SELECT brand, model, colorway, size, price, quantity
+        FROM sneakers
+        WHERE shop_id = {ph} AND quantity > 0 AND ({' OR '.join(conds)})
+        ORDER BY brand, model, size
+        LIMIT 10
+        """,
+        [shop_id, *params],
     )
 
-def get_db_summary() -> str:
-    """
-    РћРџРўРРњРР—РђР¦РРЇ 1: РљРѕРјРїР°РєС‚РЅС‹Р№ С‚РµРєСЃС‚РѕРІС‹Р№ С„РѕСЂРјР°С‚ РІРјРµСЃС‚Рѕ JSON.
-    Р­РєРѕРЅРѕРјРёСЏ ~61% С‚РѕРєРµРЅРѕРІ РЅР° РѕРїРёСЃР°РЅРёРё СЃРєР»Р°РґР°.
-    Р¤РѕСЂРјР°С‚: Р‘СЂРµРЅРґ РњРѕРґРµР»СЊ | С†РµРЅР° | СЂР°Р·РјРµСЂС‹ | РЅР°Р»РёС‡РёРµ
-    """
-    if USE_POSTGRES:
-        query = """
-            SELECT brand, model, MIN(price) as price, category,
-                   STRING_AGG(DISTINCT CAST(size::INTEGER AS TEXT), ',') as sizes,
-                   SUM(quantity) as total_qty
-            FROM sneakers
-            GROUP BY brand, model, category
-            ORDER BY brand, model
-        """
-    else:
-        query = (
-            "SELECT brand, model, MIN(price) as price, category, "
-            "GROUP_CONCAT(DISTINCT CAST(size AS INTEGER)) as sizes, "
-            "SUM(quantity) as total_qty "
-            "FROM sneakers GROUP BY brand, model ORDER BY brand, model"
-        )
-    rows = fetch_all(query)
-    lines = []
-    for r in rows:
-        stock = "РµСЃС‚СЊ" if r["total_qty"] > 0 else "РЅРµС‚"
-        lines.append(f"{r['brand']} {r['model']}|{r['price']}в‚ё|СЂ.{r['sizes']}|{stock}")
-    return "\n".join(lines)
+
+def get_relevant_sneakers(query: str, limit: int = SKU_DETAIL_LIMIT, shop_id: int | None = None) -> list[dict]:
+    """Прямой доступ для внешнего кода — возвращает SKU по запросу."""
+    normalized = normalize_query(query)
+    size = extract_requested_size(normalized)
+    words = [w for w in re.findall(r"[\w-]+", normalized) if len(w) > 2 and w not in STOP_WORDS]
+    shop_id = resolve_shop_id(shop_id)
+    matched = search_models(words, shop_id)
+    if not matched:
+        return []
+    return fetch_skus_for_models(matched, size, shop_id, limit=limit)
+
+
+def format_sneakers_context(items: list[dict], shop_id: int | None = None) -> str:
+    """Оставлен для обратной совместимости."""
+    if not items:
+        return "Нет совпадений в каталоге."
+    return _fmt_skus_block(items)

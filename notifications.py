@@ -13,13 +13,13 @@ async def notify_manager(order_id: int | None, state: dict, channel: str, extern
             return
 
         text = (
-            "РќРѕРІС‹Р№ Р·Р°РєР°Р· SoleBot\n"
+            "Новый заказ SoleBot\n"
             f"ID: {order_id or 'unknown'}\n"
-            f"РљР°РЅР°Р»: {channel}\n"
-            f"РљР»РёРµРЅС‚: {external_user_id}\n"
-            f"РРјСЏ: {state.get('name', '')}\n"
-            f"РўРµР»РµС„РѕРЅ: {state.get('phone', '')}\n"
-            f"РРЅС‚РµСЂРµСЃ: {state.get('product_interest', '')}"
+            f"Канал: {channel}\n"
+            f"Клиент: {external_user_id}\n"
+            f"Имя: {state.get('name', '')}\n"
+            f"Телефон: {state.get('phone', '')}\n"
+            f"Интерес: {state.get('product_interest', '')}"
         )
         await tg_bot.send_message(MANAGER_TELEGRAM_CHAT_ID, text)
     except Exception as e:

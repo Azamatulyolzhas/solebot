@@ -48,6 +48,7 @@ def create_order(
         log.error(f"Create order failed: {e}")
         return None
 
+
 def list_orders(limit: int = 100, offset: int = 0, shop_id: int | None = None) -> list[dict]:
     ph = db_placeholder()
     try:
@@ -71,32 +72,16 @@ def list_orders(limit: int = 100, offset: int = 0, shop_id: int | None = None) -
 def looks_like_order_request(message: str) -> bool:
     text = message.lower()
     triggers = [
-        "С…РѕС‡Сѓ РєСѓРїРёС‚СЊ", "РєСѓРїРёС‚СЊ", "Р·Р°РєР°Р·Р°С‚СЊ", "РѕС„РѕСЂРјРёС‚СЊ",
-        "Р±РµСЂСѓ", "РІРѕР·СЊРјСѓ", "РѕРїР»Р°С‚РёС‚СЊ", "Р·Р°РєР°Р·",
+        "хочу купить", "купить", "заказать", "оформить",
+        "беру", "возьму", "оплатить", "заказ",
     ]
     return any(trigger in text for trigger in triggers)
+
 
 def looks_like_phone(message: str) -> bool:
     digits = re.sub(r"\D", "", message)
     return 10 <= len(digits) <= 15
 
-async def notify_manager(order_id: int | None, state: dict, channel: str, external_user_id: str) -> None:
-    try:
-        if not tg_bot or not MANAGER_TELEGRAM_CHAT_ID:
-            return
-
-        text = (
-            "РќРѕРІС‹Р№ Р·Р°РєР°Р· SoleBot\n"
-            f"ID: {order_id or 'unknown'}\n"
-            f"РљР°РЅР°Р»: {channel}\n"
-            f"РљР»РёРµРЅС‚: {external_user_id}\n"
-            f"РРјСЏ: {state.get('name', '')}\n"
-            f"РўРµР»РµС„РѕРЅ: {state.get('phone', '')}\n"
-            f"РРЅС‚РµСЂРµСЃ: {state.get('product_interest', '')}"
-        )
-        await tg_bot.send_message(MANAGER_TELEGRAM_CHAT_ID, text)
-    except Exception as e:
-        log.error(f"Manager notification failed: {e}")
 
 async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None = None) -> str | None:
     try:
@@ -111,23 +96,23 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
                 "step": "name",
                 "product_interest": user_message.strip(),
             })
-            return "РћС‚Р»РёС‡РЅРѕ, РѕС„РѕСЂРјРёРј Р·Р°РєР°Р·. РќР°РїРёС€РёС‚Рµ, РїРѕР¶Р°Р»СѓР№СЃС‚Р°, РІР°С€Рµ РёРјСЏ."
+            return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
 
         step = state.get("step")
         if step == "name":
             name = user_message.strip()
             if len(name) < 2:
-                return "РќР°РїРёС€РёС‚Рµ, РїРѕР¶Р°Р»СѓР№СЃС‚Р°, РёРјСЏ С‡СѓС‚СЊ РїРѕРґСЂРѕР±РЅРµРµ."
+                return "Напишите, пожалуйста, имя чуть подробнее."
 
             state["name"] = name
             state["step"] = "phone"
             await set_order_state(user_id, state)
-            return "РЎРїР°СЃРёР±Рѕ. РўРµРїРµСЂСЊ РѕС‚РїСЂР°РІСЊС‚Рµ РЅРѕРјРµСЂ С‚РµР»РµС„РѕРЅР° РґР»СЏ СЃРІСЏР·Рё."
+            return "Спасибо. Теперь отправьте номер телефона для связи."
 
         if step == "phone":
             phone = user_message.strip()
             if not looks_like_phone(phone):
-                return "РџРѕС…РѕР¶Рµ, СЌС‚Рѕ РЅРµ РЅРѕРјРµСЂ С‚РµР»РµС„РѕРЅР°. РћС‚РїСЂР°РІСЊС‚Рµ РЅРѕРјРµСЂ РІ С„РѕСЂРјР°С‚Рµ +7..."
+                return "Похоже, это не номер телефона. Отправьте номер в формате +7..."
 
             state["phone"] = phone
             order_id = create_order(
@@ -140,7 +125,7 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
             )
             await notify_manager(order_id, state, channel, external_user_id)
             await clear_order_state(user_id)
-            return "Р—Р°РєР°Р· РїСЂРёРЅСЏС‚. РњРµРЅРµРґР¶РµСЂ СЃРєРѕСЂРѕ СЃРІСЏР¶РµС‚СЃСЏ СЃ РІР°РјРё РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ."
+            return "Заказ принят. Менеджер скоро свяжется с вами для подтверждения."
 
         await clear_order_state(user_id)
         return None
