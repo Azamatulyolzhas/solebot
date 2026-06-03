@@ -15,6 +15,7 @@ def ensure_app_tables() -> None:
                     tg_webhook_secret TEXT,
                     groq_system_prompt TEXT,
                     owner_email TEXT,
+                    owner_password_hash TEXT,
                     status TEXT NOT NULL DEFAULT 'active',
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
@@ -24,6 +25,7 @@ def ensure_app_tables() -> None:
                 "ALTER TABLE shops ADD COLUMN IF NOT EXISTS tg_webhook_secret TEXT",
                 "ALTER TABLE shops ADD COLUMN IF NOT EXISTS groq_system_prompt TEXT",
                 "ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_email TEXT",
+                "ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_password_hash TEXT",
                 "ALTER TABLE shops ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'",
             ):
                 conn.execute(ddl)
@@ -108,6 +110,7 @@ def ensure_app_tables() -> None:
                     tg_webhook_secret TEXT,
                     groq_system_prompt TEXT,
                     owner_email TEXT,
+                    owner_password_hash TEXT,
                     status TEXT DEFAULT 'active',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -120,6 +123,7 @@ def ensure_app_tables() -> None:
                 "tg_webhook_secret": "ALTER TABLE shops ADD COLUMN tg_webhook_secret TEXT",
                 "groq_system_prompt": "ALTER TABLE shops ADD COLUMN groq_system_prompt TEXT",
                 "owner_email": "ALTER TABLE shops ADD COLUMN owner_email TEXT",
+                "owner_password_hash": "ALTER TABLE shops ADD COLUMN owner_password_hash TEXT",
                 "status": "ALTER TABLE shops ADD COLUMN status TEXT DEFAULT 'active'",
             }.items():
                 if column not in existing_shop_columns:

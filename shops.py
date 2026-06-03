@@ -103,6 +103,159 @@ def get_all_active_telegram_shops() -> list[dict]:
         log.error(f"Get active Telegram shops failed: {e}")
         return []
 
+def create_pending_shop(name: str, email: str, password_hash: str) -> int | None:
+    """Create a new shop with status='pending' (awaiting admin approval)."""
+    import re, time
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") + f"-{int(time.time()) % 100000}"
+    ph = db_placeholder()
+    try:
+        if USE_POSTGRES:
+            row = execute_write(
+                f"""
+                INSERT INTO shops (name, slug, owner_email, owner_password_hash, status)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph})
+                RETURNING id
+                """,
+                (name, slug, email, password_hash, "pending"),
+                fetch_one=True,
+            )
+            return row["id"] if row else None
+        else:
+            execute_write(
+                f"INSERT INTO shops (name, slug, owner_email, owner_password_hash, status) VALUES ({ph},{ph},{ph},{ph},{ph})",
+                (name, slug, email, password_hash, "pending"),
+            )
+            return fetch_one_value(f"SELECT id FROM shops WHERE slug = {ph}", (slug,))
+    except Exception as e:
+        log.error(f"Create pending shop failed: {e}")
+        return None
+
+
+def update_shop_status(shop_id: int, status: str) -> bool:
+    """Approve or reject a shop (set status to 'active' or 'rejected')."""
+    ph = db_placeholder()
+    try:
+        execute_write(f"UPDATE shops SET status = {ph} WHERE id = {ph}", (status, shop_id))
+        if status == "active":
+            existing_sub = fetch_one_value(
+                f"SELECT id FROM subscriptions WHERE shop_id = {ph} LIMIT 1", (shop_id,)
+            )
+            if not existing_sub:
+                if USE_POSTGRES:
+                    execute_write(
+                        f"""
+                        INSERT INTO subscriptions (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at)
+                        VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, NOW() + INTERVAL '30 days')
+                        """,
+                        (shop_id, "trial", "active", 500, 1),
+                    )
+                else:
+                    execute_write(
+                        f"""
+                        INSERT INTO subscriptions (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at)
+                        VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, datetime('now', '+30 days'))
+                        """,
+                        (shop_id, "trial", "active", 500, 1),
+                    )
+        return True
+    except Exception as e:
+        log.error(f"Update shop status failed: {e}")
+        return False
+
+
+def list_pending_shops() -> list[dict]:
+    try:
+        return fetch_all("SELECT id, name, slug, owner_email, status, created_at FROM shops WHERE status = 'pending' ORDER BY id DESC")
+    except Exception as e:
+        log.error(f"List pending shops failed: {e}")
+        return []
+
+
+def get_shop_by_id(shop_id: int) -> dict | None:
+    try:
+        ph = db_placeholder()
+        rows = fetch_all(
+            f"SELECT id, name, slug, owner_email, status, tg_token, tg_webhook_secret, groq_system_prompt, created_at FROM shops WHERE id = {ph} LIMIT 1",
+            (shop_id,),
+        )
+        return rows[0] if rows else None
+    except Exception as e:
+        log.error(f"Get shop by id failed: {e}")
+        return None
+
+
+def get_shop_by_email(email: str) -> dict | None:
+    """Return shop row including password hash for authentication."""
+    try:
+        ph = db_placeholder()
+        rows = fetch_all(
+            f"SELECT id, name, slug, owner_email, owner_password_hash, status, groq_system_prompt FROM shops WHERE LOWER(owner_email) = LOWER({ph}) LIMIT 1",
+            (email,),
+        )
+        return rows[0] if rows else None
+    except Exception as e:
+        log.error(f"Get shop by email failed: {e}")
+        return None
+
+
+def update_shop_settings(shop_id: int, name: str | None = None, groq_system_prompt: str | None = None) -> bool:
+    sets = []
+    params: list = []
+    ph = db_placeholder()
+    if name is not None:
+        sets.append(f"name = {ph}")
+        params.append(name)
+    if groq_system_prompt is not None:
+        sets.append(f"groq_system_prompt = {ph}")
+        params.append(groq_system_prompt)
+    if not sets:
+        return False
+    params.append(shop_id)
+    execute_write(f"UPDATE shops SET {', '.join(sets)} WHERE id = {ph}", params)
+    return True
+
+
+def set_shop_owner_password(shop_id: int, password_hash: str) -> None:
+    ph = db_placeholder()
+    execute_write(f"UPDATE shops SET owner_password_hash = {ph} WHERE id = {ph}", (password_hash, shop_id))
+
+
+def save_shop_tg_token(shop_id: int, tg_token: str, webhook_secret: str) -> None:
+    """Save Telegram bot token and webhook secret for a shop."""
+    ph = db_placeholder()
+    execute_write(
+        f"UPDATE shops SET tg_token = {ph}, tg_webhook_secret = {ph} WHERE id = {ph}",
+        (tg_token, webhook_secret, shop_id),
+    )
+
+
+def clear_shop_tg_token(shop_id: int) -> None:
+    """Remove Telegram bot token from a shop (disconnect)."""
+    ph = db_placeholder()
+    execute_write(
+        f"UPDATE shops SET tg_token = NULL, tg_webhook_secret = NULL WHERE id = {ph}",
+        (shop_id,),
+    )
+
+
+def get_shop_subscription_detail(shop_id: int) -> dict | None:
+    try:
+        ph = db_placeholder()
+        rows = fetch_all(
+            f"""
+            SELECT plan, status, messages_limit, channels_limit, trial_ends_at, period_ends_at, created_at
+            FROM subscriptions
+            WHERE shop_id = {ph}
+            ORDER BY id DESC LIMIT 1
+            """,
+            (shop_id,),
+        )
+        return rows[0] if rows else None
+    except Exception as e:
+        log.error(f"Get subscription detail failed: {e}")
+        return None
+
+
 def get_shop_by_webhook_secret(secret: str) -> dict | None:
     try:
         ph = db_placeholder()

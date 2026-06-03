@@ -69,6 +69,22 @@ def list_orders(limit: int = 100, offset: int = 0, shop_id: int | None = None) -
         return []
 
 
+ORDER_STATUSES = ("new", "confirmed", "done", "cancelled")
+
+
+def update_order_status(order_id: int, status: str, shop_id: int | None = None) -> bool:
+    """Сменить статус заказа. Возвращает True если строка обновлена."""
+    if status not in ORDER_STATUSES:
+        return False
+    shop_id = resolve_shop_id(shop_id)
+    ph = db_placeholder()
+    execute_write(
+        f"UPDATE orders SET status = {ph} WHERE id = {ph} AND shop_id = {ph}",
+        (status, order_id, shop_id),
+    )
+    return True
+
+
 def looks_like_order_request(message: str) -> bool:
     text = message.lower()
     triggers = [

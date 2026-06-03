@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from pydantic import BaseModel
 
 from admin_service import (
     count_logged_tokens,
@@ -14,30 +15,45 @@ from admin_service import (
 )
 from config import ADMIN_TOKEN, TELEGRAM_WEBHOOK_URL, USE_POSTGRES
 from conversations import log_analytics_event
-from products import import_products, list_products, products_to_csv, validate_product_csv
-from orders import list_orders
-from shops import get_default_shop_id, list_shops
+from orders import ORDER_STATUSES, list_orders, update_order_status
+from products import import_products, list_products, products_to_csv, update_product, validate_product_csv
+from shops import get_default_shop_id, list_pending_shops, list_shops, update_shop_status
 from telegram_bot import shop_bots
 
 log = logging.getLogger(__name__)
 
 ADMIN_INDEX = Path(__file__).resolve().parent.parent / "admin" / "index.html"
-from conversations import log_analytics_event
-from products import import_products, list_products, products_to_csv, validate_product_csv
-from orders import list_orders
-from shops import get_default_shop_id, list_shops
-from telegram_bot import shop_bots
-
-log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin")
+
+
+# ── Pydantic schemas ───────────────────────────────────────────────────────────
+
+class ProductPatch(BaseModel):
+    price: int | None = None
+    quantity: int | None = None
+
+
+class OrderPatch(BaseModel):
+    status: str
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
+
+_NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
+
+
+@router.get("", response_class=HTMLResponse)
+async def admin_page():
+    if not ADMIN_TOKEN:
+        raise HTTPException(404, "Not found")
+    return HTMLResponse(ADMIN_INDEX.read_text(encoding="utf-8"), headers=_NO_CACHE)
 
 
 @router.get("/stats")
 async def admin_stats(request: Request):
     require_admin(request)
     shop_id = get_default_shop_id()
-
     return {
         "database": "postgresql" if USE_POSTGRES else "sqlite",
         "shop_id": shop_id,
@@ -48,13 +64,6 @@ async def admin_stats(request: Request):
         "analytics_events": count_shop_rows("analytics_events", shop_id),
         "total_tokens": count_logged_tokens(shop_id),
     }
-
-
-@router.get("", response_class=HTMLResponse)
-async def admin_page():
-    if not ADMIN_TOKEN:
-        raise HTTPException(404, "Not found")
-    return HTMLResponse(ADMIN_INDEX.read_text(encoding="utf-8"))
 
 
 @router.get("/messages")
@@ -83,6 +92,18 @@ async def admin_products(request: Request, limit: int = 100, offset: int = 0):
     }
 
 
+@router.patch("/products/{product_id}")
+async def admin_update_product(product_id: int, body: ProductPatch, request: Request):
+    require_admin(request)
+    if body.price is not None and body.price <= 0:
+        raise HTTPException(400, "price must be > 0")
+    if body.quantity is not None and body.quantity < 0:
+        raise HTTPException(400, "quantity cannot be negative")
+    shop_id = get_default_shop_id()
+    update_product(product_id, price=body.price, quantity=body.quantity, shop_id=shop_id)
+    return {"ok": True, "id": product_id}
+
+
 @router.get("/orders")
 async def admin_orders(request: Request, limit: int = 100, offset: int = 0):
     require_admin(request)
@@ -96,6 +117,37 @@ async def admin_orders(request: Request, limit: int = 100, offset: int = 0):
         "offset": offset,
         "items": list_orders(limit=limit, offset=offset, shop_id=shop_id),
     }
+
+
+@router.patch("/orders/{order_id}")
+async def admin_update_order(order_id: int, body: OrderPatch, request: Request):
+    require_admin(request)
+    if body.status not in ORDER_STATUSES:
+        raise HTTPException(400, f"status must be one of: {', '.join(ORDER_STATUSES)}")
+    shop_id = get_default_shop_id()
+    update_order_status(order_id, body.status, shop_id=shop_id)
+    return {"ok": True, "id": order_id, "status": body.status}
+
+
+@router.get("/applications")
+async def admin_applications(request: Request):
+    """List shops with status='pending' awaiting approval."""
+    require_admin(request)
+    return {"items": list_pending_shops()}
+
+
+class ShopStatusPatch(BaseModel):
+    status: str  # "active" | "rejected"
+
+
+@router.patch("/shops/{shop_id}/status")
+async def admin_update_shop_status(shop_id: int, body: ShopStatusPatch, request: Request):
+    require_admin(request)
+    allowed = ("active", "rejected", "suspended")
+    if body.status not in allowed:
+        raise HTTPException(400, f"status must be one of: {', '.join(allowed)}")
+    update_shop_status(shop_id, body.status)
+    return {"ok": True, "shop_id": shop_id, "status": body.status}
 
 
 @router.get("/shops")

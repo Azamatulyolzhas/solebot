@@ -4,7 +4,7 @@ import re
 import logging
 
 from config import USE_POSTGRES
-from db import db_placeholder, fetch_all, fetch_one_value, get_db
+from db import db_placeholder, execute_write, fetch_all, fetch_one_value, get_db
 from schema import ensure_app_tables
 from shops import resolve_shop_id
 
@@ -219,6 +219,29 @@ def import_products(products: list[dict], replace: bool = False, shop_id: int | 
 
 def replace_products(products: list[dict]) -> int:
     return import_products(products, replace=True)
+
+
+def update_product(product_id: int, price: int | None = None, quantity: int | None = None, shop_id: int | None = None) -> bool:
+    """Обновить цену и/или количество конкретного SKU."""
+    if price is None and quantity is None:
+        return False
+    shop_id = resolve_shop_id(shop_id)
+    ph = db_placeholder()
+    sets = []
+    params: list = []
+    if price is not None:
+        sets.append(f"price = {ph}")
+        params.append(price)
+    if quantity is not None:
+        sets.append(f"quantity = {ph}")
+        params.append(quantity)
+    params.extend([product_id, shop_id])
+    rows = execute_write(
+        f"UPDATE sneakers SET {', '.join(sets)} WHERE id = {ph} AND shop_id = {ph}",
+        params,
+        fetch_one=False,
+    )
+    return True
 
 
 # ── Константы ──────────────────────────────────────────────────────────────────

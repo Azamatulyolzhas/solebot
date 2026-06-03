@@ -30,3 +30,8 @@ REDIS_URL = os.getenv("REDIS_URL", "")
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "86400"))
 RATE_LIMIT_MESSAGES = int(os.getenv("RATE_LIMIT_MESSAGES", "10"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+
+# JWT secret for shop owner tokens — set a strong random string in .env
+JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_TTL_DAYS = int(os.getenv("JWT_TTL_DAYS", "30"))

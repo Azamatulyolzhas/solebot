@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SoleBot Admin</title>
-  <link rel="stylesheet" href="/admin/static/styles.css">
+  <link rel="stylesheet" href="/admin/static/styles.css?v=4">
 </head>
 <body>
   <div id="login-screen" class="login-screen hidden">
@@ -32,6 +32,8 @@
         <button class="nav-item" data-tab="orders">Заказы</button>
         <button class="nav-item" data-tab="import">Импорт CSV</button>
         <button class="nav-item" data-tab="messages">Сообщения</button>
+        <button class="nav-item" data-tab="applications">Заявки <span id="apps-badge" class="apps-badge hidden"></span></button>
+        <button class="nav-item" data-tab="shops">Магазины</button>
       </nav>
       <div class="sidebar-foot">
         <span id="db-badge" class="badge">—</span>
@@ -51,6 +53,7 @@
         </div>
       </header>
 
+      <!-- ОБЗОР -->
       <section id="tab-overview" class="tab active">
         <div id="stats-grid" class="stats-grid"></div>
         <div class="panel">
@@ -61,11 +64,15 @@
         </div>
       </section>
 
+      <!-- КАТАЛОГ -->
       <section id="tab-products" class="tab">
         <div class="panel">
           <div class="panel-head">
             <h2>Каталог</h2>
-            <span id="products-count" class="muted"></span>
+            <div class="panel-head-right">
+              <input id="products-search" class="search-input" type="search" placeholder="Поиск по бренду, модели…">
+              <span id="products-count" class="muted"></span>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -76,7 +83,7 @@
                   <th>Цвет</th>
                   <th>Размер</th>
                   <th>Кол-во</th>
-                  <th>Цена</th>
+                  <th>Цена ₸</th>
                   <th>Категория</th>
                 </tr>
               </thead>
@@ -89,8 +96,10 @@
             <button id="products-next" class="btn secondary" type="button">Вперёд</button>
           </div>
         </div>
+        <p class="edit-hint muted">Нажмите на цену или количество чтобы изменить. Enter — сохранить, Esc — отмена.</p>
       </section>
 
+      <!-- ЗАКАЗЫ -->
       <section id="tab-orders" class="tab">
         <div class="panel">
           <div class="panel-head">
@@ -117,6 +126,7 @@
         </div>
       </section>
 
+      <!-- ИМПОРТ CSV -->
       <section id="tab-import" class="tab">
         <div class="import-grid">
           <div class="panel">
@@ -139,16 +149,63 @@
         </div>
       </section>
 
+      <!-- СООБЩЕНИЯ -->
       <section id="tab-messages" class="tab">
         <div class="panel">
           <div class="panel-head"><h2>История диалогов</h2></div>
           <div id="messages-list" class="message-list"></div>
         </div>
       </section>
+
+      <!-- ЗАЯВКИ -->
+      <section id="tab-applications" class="tab">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Заявки на регистрацию</h2>
+            <span id="apps-count" class="muted"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>ID</th><th>Название магазина</th><th>Email</th><th>Дата заявки</th><th>Действие</th>
+              </tr></thead>
+              <tbody id="applications-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- МАГАЗИНЫ -->
+      <section id="tab-shops" class="tab">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Все магазины</h2>
+            <div class="panel-head-right">
+              <input id="shops-search" class="search-input" type="search" placeholder="Поиск по названию, email…">
+              <span id="shops-count" class="muted"></span>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Email</th>
+                <th>Slug</th>
+                <th>Тариф</th>
+                <th>Подписка до</th>
+                <th>Статус</th>
+                <th>Зарегистрирован</th>
+              </tr></thead>
+              <tbody id="shops-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/admin/static/app.js"></script>
+  <script src="/admin/static/app.js?v=4"></script>
 </body>
 </html>

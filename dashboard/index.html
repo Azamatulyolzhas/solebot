@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SoleBot — Мой кабинет</title>
+  <link rel="stylesheet" href="/dashboard/static/styles.css?v=4">
+</head>
+<body>
+
+  <!-- LOGIN -->
+  <div id="login-screen" class="login-screen hidden">
+    <form id="login-form" class="login-card">
+      <div class="login-logo">
+        <span class="logo-mark">S</span>
+        <span>SoleBot</span>
+      </div>
+      <h2>Войти в кабинет</h2>
+      <p class="muted">Управляйте своим магазином и ботом</p>
+      <label>Email
+        <input type="email" id="email-input" placeholder="you@example.com" required autocomplete="email">
+      </label>
+      <label>Пароль
+        <input type="password" id="password-input" placeholder="••••••••" required autocomplete="current-password">
+      </label>
+      <button type="submit" class="btn-accent">Войти</button>
+      <p id="login-error" class="error-msg hidden"></p>
+      <p class="muted center" style="font-size:14px">
+        Нет аккаунта? <button type="button" id="show-register" class="link-btn">Подать заявку</button>
+      </p>
+    </form>
+  </div>
+
+  <!-- REGISTER -->
+  <div id="register-screen" class="login-screen hidden">
+    <form id="register-form" class="login-card">
+      <div class="login-logo">
+        <span class="logo-mark">S</span>
+        <span>SoleBot</span>
+      </div>
+      <h2>Подать заявку</h2>
+      <p class="muted">После проверки мы активируем ваш магазин</p>
+      <label>Название магазина
+        <input type="text" id="reg-name" placeholder="Название магазина" required>
+      </label>
+      <label>Email
+        <input type="email" id="reg-email" placeholder="email@example.com" required autocomplete="email">
+      </label>
+      <label>Пароль
+        <input type="password" id="reg-password" placeholder="Минимум 8 символов" required autocomplete="new-password">
+      </label>
+      <button type="submit" class="btn-accent">Отправить заявку</button>
+      <p id="register-error" class="error-msg hidden"></p>
+      <p id="register-success" class="success-msg hidden"></p>
+      <p class="muted center" style="font-size:14px">
+        Уже есть аккаунт? <button type="button" id="show-login" class="link-btn">Войти</button>
+      </p>
+    </form>
+  </div>
+
+  <!-- APP -->
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="logo-mark">S</span>
+        <div>
+          <strong id="shop-name-sidebar">Магазин</strong>
+          <small id="shop-email-sidebar" class="muted-sm"></small>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-tab="overview">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Обзор
+        </button>
+        <button class="nav-item" data-tab="catalog">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>
+          Каталог
+        </button>
+        <button class="nav-item" data-tab="orders">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+          Заказы
+        </button>
+        <button class="nav-item" data-tab="messages">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          Диалоги
+        </button>
+        <button class="nav-item" data-tab="bot">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+          Настройки бота
+        </button>
+        <button class="nav-item" data-tab="subscription">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          Подписка
+        </button>
+        <button class="nav-item" data-tab="profile">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Профиль
+        </button>
+      </nav>
+      <div class="sidebar-foot">
+        <button id="logout-btn" class="ghost-btn">Выйти</button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">Обзор</h1>
+          <p id="page-subtitle" class="muted"></p>
+        </div>
+        <div class="topbar-actions">
+          <button id="refresh-btn" class="btn secondary">Обновить</button>
+        </div>
+      </header>
+
+      <!-- ОБЗОР -->
+      <section id="tab-overview" class="tab active">
+        <div id="stats-grid" class="stats-grid"></div>
+        <div id="sub-banner"></div>
+        <div class="panel mt">
+          <div class="panel-head"><h2>Последние диалоги</h2></div>
+          <div id="overview-messages" class="message-list"></div>
+        </div>
+      </section>
+
+      <!-- КАТАЛОГ -->
+      <section id="tab-catalog" class="tab">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Каталог товаров</h2>
+            <div class="panel-head-right">
+              <input id="catalog-search" class="search-input" type="search" placeholder="Поиск…">
+              <span id="catalog-count" class="muted"></span>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Бренд</th><th>Модель</th><th>Цвет</th><th>Размер</th>
+                <th>Кол-во</th><th>Цена ₸</th><th>Категория</th>
+              </tr></thead>
+              <tbody id="catalog-body"></tbody>
+            </table>
+          </div>
+          <div class="pager">
+            <button id="cat-prev" class="btn secondary">Назад</button>
+            <span id="cat-page-info" class="muted"></span>
+            <button id="cat-next" class="btn secondary">Вперёд</button>
+          </div>
+        </div>
+        <p class="edit-hint muted">Нажмите на цену или количество для редактирования. Enter — сохранить, Esc — отмена.</p>
+
+        <!-- CSV Import -->
+        <div class="panel mt">
+          <div class="panel-head"><h2>Загрузка CSV</h2></div>
+          <div class="panel-body">
+            <p class="muted small">Формат колонок: brand, model, colorway, size, quantity, price, category, gender</p>
+            <input type="file" id="csv-file" accept=".csv">
+            <div class="btn-row">
+              <button id="preview-btn" class="btn secondary">Предпросмотр</button>
+              <button id="import-btn" class="btn">Обновить каталог</button>
+              <button id="replace-btn" class="btn danger">Заменить полностью</button>
+            </div>
+            <a id="export-link" class="link" href="#">Скачать CSV</a>
+          </div>
+          <div id="import-result" class="panel-body muted small hidden"></div>
+        </div>
+      </section>
+
+      <!-- ЗАКАЗЫ -->
+      <section id="tab-orders" class="tab">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Заказы</h2>
+            <span id="orders-count" class="muted"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>ID</th><th>Канал</th><th>Клиент</th><th>Имя</th>
+                <th>Телефон</th><th>Интерес</th><th>Статус</th><th>Дата</th>
+              </tr></thead>
+              <tbody id="orders-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ДИАЛОГИ -->
+      <section id="tab-messages" class="tab">
+        <div class="panel">
+          <div class="panel-head"><h2>История диалогов</h2></div>
+          <div id="messages-list" class="message-list"></div>
+        </div>
+      </section>
+
+      <!-- НАСТРОЙКИ БОТА -->
+      <section id="tab-bot" class="tab">
+
+        <!-- Telegram -->
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Telegram бот</h2>
+            <span id="tg-status-badge" class="status-badge badge-pending">Не подключён</span>
+          </div>
+          <div id="tg-connected-block" class="panel-body hidden">
+            <div class="bot-connected-info">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <div>
+                <strong>Бот подключён</strong>
+                <p id="tg-bot-username" class="muted small"></p>
+              </div>
+            </div>
+            <div class="btn-row mt-sm">
+              <button id="tg-disconnect-btn" class="btn danger">Отключить бота</button>
+            </div>
+          </div>
+          <div id="tg-connect-block" class="panel-body form-grid">
+            <p class="muted small">
+              Создайте бота через <a href="https://t.me/BotFather" target="_blank">@BotFather</a> и вставьте токен ниже.
+              После сохранения бот автоматически начнёт отвечать клиентам.
+            </p>
+            <label class="form-label">
+              Токен Telegram бота
+              <input type="text" id="tg-token-input" placeholder="123456:ABC-DEF1234..." autocomplete="off">
+            </label>
+            <div class="btn-row">
+              <button id="tg-connect-btn" class="btn">Подключить бота</button>
+            </div>
+            <p id="tg-connect-error" class="error-msg hidden"></p>
+          </div>
+        </div>
+
+        <!-- Промпт -->
+        <div class="panel mt">
+          <div class="panel-head"><h2>Инструкция для ИИ (промпт)</h2></div>
+          <div class="panel-body form-grid">
+            <label class="form-label">
+              Название магазина
+              <input type="text" id="shop-name-input" placeholder="Мой магазин кроссовок">
+            </label>
+            <label class="form-label">
+              Системный промпт
+              <textarea id="bot-prompt-input" rows="8" placeholder="Ты консультант магазина..."></textarea>
+              <span class="muted small">Опишите тон, стиль и правила бота. Оставьте пустым — используется стандартный промпт.</span>
+            </label>
+            <div class="btn-row">
+              <button id="save-bot-settings" class="btn">Сохранить</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ПОДПИСКА -->
+      <section id="tab-subscription" class="tab">
+        <div id="subscription-card"></div>
+      </section>
+
+      <!-- ПРОФИЛЬ -->
+      <section id="tab-profile" class="tab">
+        <div class="profile-grid">
+          <!-- Информация о магазине -->
+          <div class="panel">
+            <div class="panel-head"><h2>Информация о магазине</h2></div>
+            <div class="panel-body form-grid">
+              <div class="profile-info-row">
+                <span class="profile-label">ID магазина</span>
+                <span id="profile-shop-id" class="profile-value mono">—</span>
+              </div>
+              <div class="profile-info-row">
+                <span class="profile-label">Статус</span>
+                <span id="profile-status" class="profile-value"></span>
+              </div>
+              <div class="profile-info-row">
+                <span class="profile-label">Slug</span>
+                <span id="profile-slug" class="profile-value mono">—</span>
+              </div>
+              <div class="profile-info-row">
+                <span class="profile-label">Email</span>
+                <span id="profile-email" class="profile-value">—</span>
+              </div>
+              <hr class="divider">
+              <label class="form-label">
+                Название магазина
+                <input type="text" id="profile-name-input" placeholder="Мой магазин">
+              </label>
+              <label class="form-label">
+                Email для входа
+                <input type="email" id="profile-email-input" placeholder="you@example.com">
+              </label>
+              <div class="btn-row">
+                <button id="save-profile-btn" class="btn">Сохранить изменения</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Смена пароля -->
+          <div class="panel">
+            <div class="panel-head"><h2>Безопасность</h2></div>
+            <div class="panel-body form-grid">
+              <p class="muted small">Рекомендуем использовать надёжный пароль длиной не менее 12 символов.</p>
+              <label class="form-label">
+                Текущий пароль
+                <input type="password" id="profile-cur-pwd" placeholder="••••••••">
+              </label>
+              <label class="form-label">
+                Новый пароль
+                <input type="password" id="profile-new-pwd" placeholder="Минимум 8 символов">
+              </label>
+              <div class="btn-row">
+                <button id="profile-change-pwd-btn" class="btn secondary">Изменить пароль</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/dashboard/static/app.js?v=4"></script>
+</body>
+</html>

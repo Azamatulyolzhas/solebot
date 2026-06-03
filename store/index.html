@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SoleBot — Каталог кроссовок</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/store/static/styles.css">
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="logo" href="/store">
+        <span class="logo-mark">S</span>
+        <span class="logo-text">SoleBot</span>
+      </a>
+      <div class="header-right">
+        <span id="header-count" class="header-count"></span>
+        <button id="chat-toggle" class="chat-open-btn" aria-label="Открыть чат">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          Спросить бота
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- FILTERS -->
+  <div class="filters-bar">
+    <div class="container filters-inner">
+      <div class="filter-group">
+        <label class="filter-label">Бренд</label>
+        <div id="brand-filters" class="chip-row"></div>
+      </div>
+      <div class="filter-group">
+        <label class="filter-label">Размер</label>
+        <div id="size-filters" class="chip-row"></div>
+      </div>
+      <button id="reset-filters" class="reset-btn hidden">Сбросить фильтры</button>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <main class="container main-content">
+    <div id="loading" class="loading-state">
+      <div class="spinner"></div>
+      <p>Загружаем каталог…</p>
+    </div>
+
+    <div id="empty-state" class="empty-state hidden">
+      <p>Ничего не найдено. Попробуйте другой фильтр или</p>
+      <button id="ask-bot-empty" class="btn-primary">спросите бота</button>
+    </div>
+
+    <div id="catalog-grid" class="catalog-grid"></div>
+  </main>
+
+  <!-- CHAT WIDGET -->
+  <div id="chat-widget" class="chat-widget hidden" role="dialog" aria-label="Чат с ботом">
+    <div class="chat-header">
+      <div class="chat-header-info">
+        <span class="chat-avatar">S</span>
+        <div>
+          <strong>SoleBot</strong>
+          <span class="chat-status">Онлайн</span>
+        </div>
+      </div>
+      <button id="chat-close" class="chat-close" aria-label="Закрыть">✕</button>
+    </div>
+    <div id="chat-messages" class="chat-messages">
+      <div class="chat-bubble bot">Привет! Помогу найти кроссовки. Спросите про модель, размер или бренд.</div>
+    </div>
+    <div class="chat-input-row">
+      <input id="chat-input" type="text" placeholder="Напишите сообщение…" autocomplete="off">
+      <button id="chat-send" class="chat-send-btn" aria-label="Отправить">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- FAB (показывается только когда виджет закрыт) -->
+  <button id="chat-fab" class="chat-fab" aria-label="Открыть чат">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>
+  </button>
+
+  <script src="/store/static/app.js"></script>
+</body>
+</html>

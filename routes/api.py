@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from ai import ask_ai
 from models import ChatRequest, ChatResponse
@@ -15,6 +15,8 @@ from config import (
 from admin_service import get_database_status
 from cache import get_redis_status
 from instagram_client import send_instagram
+from products import get_models_summary, list_in_stock_brands
+from shops import get_default_shop_id
 from whatsapp_client import send_whatsapp
 
 log = logging.getLogger(__name__)
@@ -25,7 +27,52 @@ WHATSAPP_VERIFY = WHATSAPP_VERIFY_TOKEN
 INSTAGRAM_VERIFY = INSTAGRAM_VERIFY_TOKEN
 
 
-@router.get("/")
+@router.get("/store", response_class=HTMLResponse)
+async def store_page():
+    from pathlib import Path
+    p = Path(__file__).resolve().parent.parent / "store" / "index.html"
+    if not p.exists():
+        return HTMLResponse("<h1>Store coming soon</h1>")
+    return HTMLResponse(p.read_text(encoding="utf-8"))
+
+
+@router.get("/api/catalog")
+async def public_catalog(brand: str = "", size: float = 0):
+    """Публичный каталог для сайта клиентов. Группировка по модели."""
+    shop_id = get_default_shop_id()
+    rows = get_models_summary(shop_id, limit=200)
+    brands = list_in_stock_brands(shop_id)
+
+    if brand:
+        rows = [r for r in rows if r["brand"].lower() == brand.lower()]
+    if size:
+        from products import fetch_skus_for_models
+        from db import db_placeholder, fetch_all
+        from config import USE_POSTGRES
+        from shops import resolve_shop_id
+        ph = db_placeholder()
+        sid = resolve_shop_id(shop_id)
+        if USE_POSTGRES:
+            size_rows = fetch_all(
+                f"SELECT DISTINCT brand, model FROM sneakers WHERE shop_id = {ph} AND size = {ph} AND quantity > 0",
+                (sid, size),
+            )
+        else:
+            size_rows = fetch_all(
+                f"SELECT DISTINCT brand, model FROM sneakers WHERE shop_id = {ph} AND size = {ph} AND quantity > 0",
+                (sid, size),
+            )
+        valid = {(r["brand"], r["model"]) for r in size_rows}
+        rows = [r for r in rows if (r["brand"], r["model"]) in valid]
+
+    return {
+        "brands": brands,
+        "count": len(rows),
+        "items": rows,
+    }
+
+
+@router.get("/health")
 async def health():
     db_status = get_database_status()
     redis_status = await get_redis_status()
