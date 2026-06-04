@@ -373,6 +373,46 @@ hr.divider { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
 .toast-success { background: #14532d; color: #fff; }
 .toast-error   { background: #7f1d1d; color: #fff; }
 
+/* ── Misc badges ────────────────────────────────────────────────────────────── */
+.badge-info { display: inline-block; font-size: 11px; font-weight: 600; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 2px 10px; }
+
+/* ── Setup steps ────────────────────────────────────────────────────────────── */
+.setup-steps { display: flex; flex-direction: column; gap: 14px; margin: 10px 0; }
+.setup-step { display: flex; gap: 14px; align-items: flex-start; }
+.step-num { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; background: #2563eb; color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.setup-list { margin: 6px 0 0 4px; padding-left: 16px; }
+.setup-list li { margin-bottom: 4px; font-size: 14px; }
+.copy-on-click { cursor: pointer; }
+.copy-on-click:hover { background: #dbeafe; }
+
+/* ── Analytics charts ───────────────────────────────────────────────────────── */
+.charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+.chart-panel { min-width: 0; }
+.chart-wrap { padding: 12px 16px 16px; position: relative; height: 220px; }
+.chart-wrap canvas { max-height: 100%; }
+.top-list { padding: 12px 16px; }
+.top-list-item { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.top-list-bar-wrap { flex: 1; background: #f1f5f9; border-radius: 6px; height: 8px; overflow: hidden; }
+.top-list-bar { height: 100%; background: #2563eb; border-radius: 6px; transition: width .4s; }
+.top-list-label { font-size: 13px; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top-list-value { font-size: 12px; color: var(--muted); min-width: 36px; text-align: right; }
+@media (max-width: 760px) { .charts-row { grid-template-columns: 1fr; } }
+
+/* ── Payment info ───────────────────────────────────────────────────────────── */
+.payment-info { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+.payment-info h3 { margin: 0 0 14px; font-size: 15px; }
+.payment-plans { display: flex; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+.payment-plan { flex: 1; min-width: 140px; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.payment-plan-featured { border-color: #2563eb; background: #eff6ff; }
+.plan-name { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.plan-price { font-size: 20px; font-weight: 800; color: #2563eb; }
+.plan-desc { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.payment-requisites { background: #f8fafc; border-radius: 10px; padding: 14px 16px; }
+.req-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.req-label { font-size: 13px; color: var(--muted); min-width: 90px; }
+.req-value { font-size: 15px; font-weight: 600; }
+.req-note { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+
 /* ── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }

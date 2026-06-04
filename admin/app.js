@@ -411,19 +411,24 @@ const SHOP_STATUSES      = ["active", "pending", "suspended", "rejected"];
 function renderShopsFiltered(items) {
   const body = document.getElementById("shops-body");
   if (!items.length) {
-    body.innerHTML = `<tr><td colspan="8" class="muted center">Магазинов не найдено</td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" class="muted center">Магазинов не найдено</td></tr>`;
     return;
   }
   body.innerHTML = items.map((s) => {
-    const ends = s.trial_ends_at || s.period_ends_at;
+    const ends = s.period_ends_at || s.trial_ends_at;
+    const endsStr = ends ? new Date(ends).toLocaleDateString("ru-RU") : "—";
+    const isExpired = ends && new Date(ends) < new Date();
+    const subBadge = isExpired
+      ? `<span class="status-badge badge-error">Истекла</span>`
+      : ends
+        ? `<span class="status-badge badge-active">${escapeHtml(s.plan || "trial")} до ${endsStr}</span>`
+        : `<span class="status-badge badge-pending">нет</span>`;
     return `
       <tr data-shop-id="${s.id}">
-        <td>#${escapeHtml(s.id)}</td>
+        <td>#${escapeHtml(String(s.id))}</td>
         <td><strong>${escapeHtml(s.name)}</strong><br><small class="muted">${escapeHtml(s.owner_email || "—")}</small></td>
-        <td>${escapeHtml(s.owner_email || "—")}</td>
         <td class="mono">${escapeHtml(s.slug || "—")}</td>
-        <td>${escapeHtml(s.plan || "—")}</td>
-        <td>${ends ? new Date(ends).toLocaleDateString("ru-RU") : "—"}</td>
+        <td>${subBadge}</td>
         <td>
           <select class="status-select shop-status-select ${SHOP_STATUS_CLASS[s.status] || "status-new"}"
                   data-id="${s.id}" data-current="${s.status}">
@@ -431,16 +436,21 @@ function renderShopsFiltered(items) {
           </select>
         </td>
         <td>${formatDate(s.created_at)}</td>
+        <td>
+          <button class="btn-sm sub-extend-btn" data-id="${s.id}" data-name="${escapeHtml(s.name)}">
+            💳 Подписка
+          </button>
+        </td>
       </tr>
     `;
   }).join("");
 
   body.querySelectorAll(".shop-status-select").forEach((sel) => {
-    sel.addEventListener("change", async (e) => {
-      const id      = sel.dataset.id;
-      const prev    = sel.dataset.current;
-      const newSt   = sel.value;
-      sel.disabled  = true;
+    sel.addEventListener("change", async () => {
+      const id    = sel.dataset.id;
+      const prev  = sel.dataset.current;
+      const newSt = sel.value;
+      sel.disabled = true;
       try {
         await api(`/admin/shops/${id}/status`, {
           method: "PATCH",
@@ -458,7 +468,49 @@ function renderShopsFiltered(items) {
       }
     });
   });
+
+  body.querySelectorAll(".sub-extend-btn").forEach((btn) => {
+    btn.addEventListener("click", () => openSubModal(btn.dataset.id, btn.dataset.name));
+  });
 }
+
+// ── Subscription modal ────────────────────────────────────────────────────────
+function openSubModal(shopId, shopName) {
+  document.getElementById("sub-modal-title").textContent = `Подписка: ${shopName}`;
+  document.getElementById("sub-modal-shop-id").value = shopId;
+  document.getElementById("sub-modal-plan").value = "basic";
+  document.getElementById("sub-modal-days").value = "30";
+  document.getElementById("sub-modal").classList.remove("hidden");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("sub-modal-close").addEventListener("click", () => {
+    document.getElementById("sub-modal").classList.add("hidden");
+  });
+
+  document.getElementById("sub-modal-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const shopId = document.getElementById("sub-modal-shop-id").value;
+    const plan   = document.getElementById("sub-modal-plan").value;
+    const days   = parseInt(document.getElementById("sub-modal-days").value);
+    const btn    = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    try {
+      await api(`/admin/shops/${shopId}/subscription`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan, days }),
+      });
+      showToast(`Подписка активирована на ${days} дней`, "success");
+      document.getElementById("sub-modal").classList.add("hidden");
+      await loadShops();
+    } catch (err) {
+      showToast(err.message || "Ошибка", "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+});
 
 async function loadShops() {
   const data = await api("/admin/shops");

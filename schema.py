@@ -27,6 +27,8 @@ def ensure_app_tables() -> None:
                 "ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_email TEXT",
                 "ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_password_hash TEXT",
                 "ALTER TABLE shops ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'",
+                "ALTER TABLE shops ADD COLUMN IF NOT EXISTS moysklad_token TEXT",
+                "ALTER TABLE shops ADD COLUMN IF NOT EXISTS sync_api_key TEXT",
             ):
                 conn.execute(ddl)
             conn.execute("""
@@ -100,6 +102,16 @@ def ensure_app_tables() -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_shop ON orders(shop_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_shop ON conversations(shop_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_shop ON subscriptions(shop_id)")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id BIGSERIAL PRIMARY KEY,
+                    shop_id BIGINT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+                    token TEXT NOT NULL UNIQUE,
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    used BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
         else:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS shops (

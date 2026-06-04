@@ -53,6 +53,10 @@ async def register_shop_bot(shop: dict) -> None:
 
         @dp.message()
         async def shop_message(msg: Message):
+            from shops import is_subscription_active
+            if not is_subscription_active(shop["id"]):
+                await msg.answer("⚠️ Подписка магазина истекла. Пожалуйста, обратитесь к владельцу.")
+                return
             user_id = f"tg_{shop['id']}_{msg.from_user.id}"
             await msg.bot.send_chat_action(msg.chat.id, "typing")
             reply = await ask_ai(user_id, msg.text or "", shop_id=shop["id"])

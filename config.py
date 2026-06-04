@@ -35,3 +35,12 @@ RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_TTL_DAYS = int(os.getenv("JWT_TTL_DAYS", "30"))
+
+# Subscription plans (shown in shop dashboard)
+PAYMENT_KASPI = os.getenv("PAYMENT_KASPI", "")        # Kaspi Gold number
+PAYMENT_DETAILS = os.getenv("PAYMENT_DETAILS", "")    # Extra payment instructions
+
+# Email notifications via Resend (https://resend.com)
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@solebot.app")
+SHOP_DASHBOARD_URL = os.getenv("SHOP_DASHBOARD_URL", "")

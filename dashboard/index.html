@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SoleBot — Мой кабинет</title>
-  <link rel="stylesheet" href="/dashboard/static/styles.css?v=4">
+  <link rel="stylesheet" href="/dashboard/static/styles.css?v=9">
 </head>
 <body>
 
@@ -26,8 +26,53 @@
       <button type="submit" class="btn-accent">Войти</button>
       <p id="login-error" class="error-msg hidden"></p>
       <p class="muted center" style="font-size:14px">
+        <button type="button" id="show-forgot" class="link-btn">Забыл пароль</button>
+      </p>
+      <p class="muted center" style="font-size:14px">
         Нет аккаунта? <button type="button" id="show-register" class="link-btn">Подать заявку</button>
       </p>
+    </form>
+  </div>
+
+  <!-- FORGOT PASSWORD -->
+  <div id="forgot-screen" class="login-screen hidden">
+    <form id="forgot-form" class="login-card" method="post" action="javascript:void(0)">
+      <div class="login-logo">
+        <span class="logo-mark">S</span>
+        <span>SoleBot</span>
+      </div>
+      <h2>Восстановление пароля</h2>
+      <p class="muted">Введите email — пришлём ссылку для сброса</p>
+      <label>Email
+        <input type="email" id="forgot-email" placeholder="you@example.com" required autocomplete="email">
+      </label>
+      <button type="submit" class="btn-accent">Отправить ссылку</button>
+      <p id="forgot-error" class="error-msg hidden"></p>
+      <p id="forgot-success" class="success-msg hidden"></p>
+      <p class="muted center" style="font-size:14px">
+        <button type="button" id="show-login-from-forgot" class="link-btn">← Назад ко входу</button>
+      </p>
+    </form>
+  </div>
+
+  <!-- RESET PASSWORD -->
+  <div id="reset-screen" class="login-screen hidden">
+    <form id="reset-form" class="login-card" method="post" action="javascript:void(0)">
+      <div class="login-logo">
+        <span class="logo-mark">S</span>
+        <span>SoleBot</span>
+      </div>
+      <h2>Новый пароль</h2>
+      <p class="muted">Придумайте надёжный пароль</p>
+      <label>Новый пароль
+        <input type="password" id="reset-password" placeholder="Минимум 8 символов" required autocomplete="new-password">
+      </label>
+      <label>Повторите пароль
+        <input type="password" id="reset-password2" placeholder="Повторите пароль" required autocomplete="new-password">
+      </label>
+      <button type="submit" class="btn-accent">Сохранить пароль</button>
+      <p id="reset-error" class="error-msg hidden"></p>
+      <p id="reset-success" class="success-msg hidden"></p>
     </form>
   </div>
 
@@ -118,6 +163,31 @@
       <section id="tab-overview" class="tab active">
         <div id="stats-grid" class="stats-grid"></div>
         <div id="sub-banner"></div>
+
+        <!-- Charts row -->
+        <div class="charts-row">
+          <div class="panel chart-panel">
+            <div class="panel-head"><h2>Сообщений за 14 дней</h2></div>
+            <div class="chart-wrap"><canvas id="chart-messages"></canvas></div>
+          </div>
+          <div class="panel chart-panel">
+            <div class="panel-head"><h2>Топ брендов в каталоге</h2></div>
+            <div class="chart-wrap"><canvas id="chart-brands"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Analytics summary -->
+        <div class="charts-row">
+          <div class="panel chart-panel">
+            <div class="panel-head"><h2>Заказы по статусам</h2></div>
+            <div class="chart-wrap"><canvas id="chart-orders"></canvas></div>
+          </div>
+          <div class="panel chart-panel">
+            <div class="panel-head"><h2>Остатки по моделям</h2></div>
+            <div id="top-models-list" class="top-list"></div>
+          </div>
+        </div>
+
         <div class="panel mt">
           <div class="panel-head"><h2>Последние диалоги</h2></div>
           <div id="overview-messages" class="message-list"></div>
@@ -165,6 +235,25 @@
             <a id="export-link" class="link" href="#">Скачать CSV</a>
           </div>
           <div id="import-result" class="panel-body muted small hidden"></div>
+        </div>
+
+        <!-- 1С CommerceML Import -->
+        <div class="panel mt">
+          <div class="panel-head">
+            <h2>Загрузка из 1С (CommerceML)</h2>
+            <span class="badge-info">1С:Розница / 1С:УТ</span>
+          </div>
+          <div class="panel-body">
+            <p class="muted small">
+              В 1С: <strong>Файл → Обмен данными → Выгрузить в CommerceML</strong> → загрузите .xml файл сюда.
+            </p>
+            <input type="file" id="xml-1c-file" accept=".xml">
+            <div class="btn-row">
+              <button id="xml-1c-btn" class="btn">Обновить остатки</button>
+              <button id="xml-1c-replace-btn" class="btn danger">Заменить каталог</button>
+            </div>
+          </div>
+          <div id="xml-1c-result" class="panel-body muted small hidden"></div>
         </div>
       </section>
 
@@ -229,6 +318,93 @@
               <button id="tg-connect-btn" class="btn">Подключить бота</button>
             </div>
             <p id="tg-connect-error" class="error-msg hidden"></p>
+          </div>
+        </div>
+
+        <!-- МойСклад -->
+        <div class="panel mt">
+          <div class="panel-head">
+            <h2>МойСклад</h2>
+            <span id="ms-status-badge" class="status-badge badge-pending">Не подключён</span>
+          </div>
+          <div id="ms-connected-block" class="panel-body hidden">
+            <div class="bot-connected-info">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <div>
+                <strong>МойСклад подключён</strong>
+                <p class="muted small">При каждой продаже остатки синхронизируются автоматически</p>
+              </div>
+            </div>
+            <div class="btn-row mt-sm">
+              <button id="ms-disconnect-btn" class="btn danger">Отключить</button>
+            </div>
+          </div>
+          <div id="ms-connect-block" class="panel-body form-grid">
+            <p class="muted small">
+              Вставьте токен МойСклад (Settings → Tokens). После подключения настройте вебхук в МойСклад
+              на URL <code id="ms-webhook-url" class="mono"></code>
+            </p>
+            <label class="form-label">
+              Токен МойСклад
+              <input type="text" id="ms-token-input" placeholder="Bearer token из МойСклад" autocomplete="off">
+            </label>
+            <div class="btn-row">
+              <button id="ms-connect-btn" class="btn">Подключить МойСклад</button>
+            </div>
+            <p id="ms-connect-error" class="error-msg hidden"></p>
+          </div>
+        </div>
+
+        <!-- API ключ синхронизации -->
+        <div class="panel mt">
+          <div class="panel-head"><h2>API ключ синхронизации</h2></div>
+          <div class="panel-body form-grid">
+            <p class="muted small">
+              Ключ используется для автоматической синхронизации из 1С, МойСклад и других систем.
+            </p>
+            <div id="sync-api-key-block">
+              <p class="muted small">Ключ не сгенерирован</p>
+            </div>
+            <div class="btn-row">
+              <button id="generate-api-key-btn" class="btn">Сгенерировать ключ</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 1С Автосинхронизация -->
+        <div class="panel mt" id="onec-setup-panel">
+          <div class="panel-head">
+            <h2>1С — автоматическая синхронизация</h2>
+            <span class="badge-info">1С:Розница / 1С:УТ</span>
+          </div>
+          <div class="panel-body">
+            <p class="muted small">Настройте один раз — 1С будет сам отправлять остатки по расписанию.</p>
+            <div class="setup-steps">
+              <div class="setup-step">
+                <span class="step-num">1</span>
+                <div>
+                  В 1С: <strong>Администрирование → Обмен данными → Обмен с сайтом → Создать</strong>
+                </div>
+              </div>
+              <div class="setup-step">
+                <span class="step-num">2</span>
+                <div>
+                  Укажите:
+                  <ul class="setup-list">
+                    <li><strong>URL сайта:</strong> <code id="onec-url" class="mono copy-on-click">—</code></li>
+                    <li><strong>Логин:</strong> <code class="mono">shop</code></li>
+                    <li><strong>Пароль:</strong> <code id="onec-password" class="mono copy-on-click">— (сгенерируйте ключ выше)</code></li>
+                  </ul>
+                </div>
+              </div>
+              <div class="setup-step">
+                <span class="step-num">3</span>
+                <div>Выберите расписание: каждые <strong>15 минут</strong> или реже. Нажмите "Начать обмен".</div>
+              </div>
+            </div>
+            <p class="muted small mt" style="color:#16a34a">
+              После настройки 1С будет автоматически отправлять изменения — как МойСклад.
+            </p>
           </div>
         </div>
 
@@ -319,6 +495,7 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/dashboard/static/app.js?v=4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="/dashboard/static/app.js?v=9"></script>
 </body>
 </html>

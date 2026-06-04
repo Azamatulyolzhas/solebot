@@ -59,8 +59,13 @@ async function patchApi(path, body) {
 }
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
+const forgotScreen = document.getElementById("forgot-screen");
+const resetScreen  = document.getElementById("reset-screen");
+
 function showLogin() {
   registerScreen.classList.add("hidden");
+  forgotScreen.classList.add("hidden");
+  resetScreen.classList.add("hidden");
   appEl.classList.add("hidden");
   loginScreen.classList.remove("hidden");
 }
@@ -68,6 +73,11 @@ function showLogin() {
 function showRegister() {
   loginScreen.classList.add("hidden");
   registerScreen.classList.remove("hidden");
+}
+
+function showForgot() {
+  loginScreen.classList.add("hidden");
+  forgotScreen.classList.remove("hidden");
 }
 
 function logout() {
@@ -269,6 +279,8 @@ function fillBotSettings(shop) {
   document.getElementById("shop-name-input").value = shop.name || "";
   document.getElementById("bot-prompt-input").value = shop.groq_system_prompt || "";
   renderTgStatus(shop.has_tg_bot, shop.tg_bot_username || null);
+  renderMsStatus(shop.has_moysklad || false);
+  renderSyncApiKey(shop.sync_api_key || null);
 }
 
 function renderTgStatus(connected, username) {
@@ -289,6 +301,84 @@ function renderTgStatus(connected, username) {
     connectBlock.classList.remove("hidden");
   }
 }
+
+function renderMsStatus(connected) {
+  const badge        = document.getElementById("ms-status-badge");
+  const connBlock    = document.getElementById("ms-connected-block");
+  const connectBlock = document.getElementById("ms-connect-block");
+  if (!badge) return;
+  if (connected) {
+    badge.textContent = "Подключён";
+    badge.className   = "status-badge badge-active";
+    connBlock.classList.remove("hidden");
+    connectBlock.classList.add("hidden");
+  } else {
+    badge.textContent = "Не подключён";
+    badge.className   = "status-badge badge-pending";
+    connBlock.classList.add("hidden");
+    connectBlock.classList.remove("hidden");
+    const wh = document.getElementById("ms-webhook-url");
+    if (wh) wh.textContent = `${location.origin}/sync/moysklad`;
+  }
+}
+
+function renderSyncApiKey(key) {
+  const el = document.getElementById("sync-api-key-block");
+  if (!el) return;
+  if (key) {
+    el.innerHTML = `
+      <div class="req-row">
+        <span class="req-label">API ключ</span>
+        <code class="mono req-value" id="sync-key-value">${esc(key)}</code>
+      </div>
+      <p class="muted small">Храните ключ в безопасном месте. Нажмите "Сгенерировать" чтобы создать новый (старый перестанет работать).</p>
+    `;
+  } else {
+    el.innerHTML = `<p class="muted small">Ключ не сгенерирован. Нажмите кнопку ниже.</p>`;
+  }
+  // Update 1С setup panel with URL and password
+  const baseUrl = window.location.origin;
+  const urlEl = document.getElementById("onec-url");
+  const pwdEl = document.getElementById("onec-password");
+  if (urlEl) urlEl.textContent = `${baseUrl}/sync/1c-exchange`;
+  if (pwdEl) pwdEl.textContent = key || "— (сгенерируйте ключ выше)";
+}
+
+// ── МойСклад connect ───────────────────────────────────────────────────────────
+document.getElementById("ms-connect-btn").addEventListener("click", async () => {
+  const token = document.getElementById("ms-token-input").value.trim();
+  const errEl = document.getElementById("ms-connect-error");
+  errEl.classList.add("hidden");
+  if (!token) { errEl.textContent = "Введите токен"; errEl.classList.remove("hidden"); return; }
+  try {
+    await api("/shop/moysklad-connect", { method: "POST", json: { token } });
+    renderMsStatus(true);
+    showToast("МойСклад подключён!", "success");
+    document.getElementById("ms-token-input").value = "";
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove("hidden");
+  }
+});
+
+document.getElementById("ms-disconnect-btn").addEventListener("click", async () => {
+  if (!confirm("Отключить МойСклад? Автосинхронизация остановится.")) return;
+  try {
+    await api("/shop/moysklad-connect", { method: "DELETE" });
+    renderMsStatus(false);
+    showToast("МойСклад отключён", "info");
+  } catch (err) { showToast(err.message, "error"); }
+});
+
+document.getElementById("generate-api-key-btn").addEventListener("click", async () => {
+  if (document.getElementById("sync-key-value") &&
+      !confirm("Сгенерировать новый ключ? Старый перестанет работать.")) return;
+  try {
+    const r = await api("/shop/sync-api-key", { method: "POST" });
+    renderSyncApiKey(r.api_key);
+    showToast("API ключ сгенерирован", "success");
+  } catch (err) { showToast(err.message, "error"); }
+});
 
 // ── Profile ────────────────────────────────────────────────────────────────────
 const SHOP_STATUS_LABELS = { active: "Активен", pending: "На модерации", suspended: "Заблокирован", rejected: "Отклонён" };
@@ -327,7 +417,37 @@ function renderSubscription(sub) {
         <div class="sub-detail"><div class="label">Каналов</div><div class="value">${sub.channels_limit}</div></div>
         ${ends ? `<div class="sub-detail"><div class="label">Действует до</div><div class="value" style="font-size:15px">${new Date(ends).toLocaleDateString("ru-RU")}</div></div>` : ""}
       </div>
-      <p class="muted small">Для изменения тарифа обратитесь к поставщику SoleBot.</p>
+      <div class="payment-info">
+        <h3>Как оплатить</h3>
+        <div class="payment-plans">
+          <div class="payment-plan">
+            <div class="plan-name">Basic</div>
+            <div class="plan-price">$29 / мес</div>
+            <div class="plan-desc">2 000 сообщений</div>
+          </div>
+          <div class="payment-plan payment-plan-featured">
+            <div class="plan-name">Pro</div>
+            <div class="plan-price">$79 / мес</div>
+            <div class="plan-desc">Безлимит</div>
+          </div>
+        </div>
+        <div id="payment-details-block"></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPaymentInfo(info) {
+  const el = document.getElementById("payment-details-block");
+  if (!el) return;
+  if (!info || (!info.kaspi && !info.details)) {
+    el.innerHTML = `<p class="muted small">Для оплаты свяжитесь с поддержкой.</p>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="payment-requisites">
+      ${info.kaspi ? `<div class="req-row"><span class="req-label">Kaspi Gold</span><span class="req-value mono">${esc(info.kaspi)}</span></div>` : ""}
+      ${info.details ? `<p class="req-note">${esc(info.details)}</p>` : ""}
     </div>
   `;
 }
@@ -358,16 +478,129 @@ async function uploadCsv(path) {
   return res.json();
 }
 
+// ── Analytics charts ───────────────────────────────────────────────────────────
+let _charts = {};
+
+function destroyChart(id) {
+  if (_charts[id]) { _charts[id].destroy(); delete _charts[id]; }
+}
+
+function renderAnalytics(data) {
+  if (!data || data.error) return;
+
+  // 1. Messages per day — line chart
+  destroyChart("messages");
+  const msgCtx = document.getElementById("chart-messages");
+  if (msgCtx) {
+    const labels = data.daily_messages.map(r => r.day.slice(5)); // MM-DD
+    const values = data.daily_messages.map(r => r.cnt);
+    _charts["messages"] = new Chart(msgCtx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: "Сообщений",
+          data: values,
+          borderColor: "#2563eb",
+          backgroundColor: "rgba(37,99,235,0.08)",
+          tension: 0.3,
+          fill: true,
+          pointRadius: 3,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+      },
+    });
+  }
+
+  // 2. Top brands — horizontal bar chart
+  destroyChart("brands");
+  const brandCtx = document.getElementById("chart-brands");
+  if (brandCtx && data.top_brands.length) {
+    _charts["brands"] = new Chart(brandCtx, {
+      type: "bar",
+      data: {
+        labels: data.top_brands.map(r => r.brand),
+        datasets: [{
+          label: "SKU в наличии",
+          data: data.top_brands.map(r => r.cnt),
+          backgroundColor: [
+            "#2563eb","#7c3aed","#db2777","#ea580c",
+            "#16a34a","#0891b2","#d97706","#64748b",
+          ],
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+      },
+    });
+  }
+
+  // 3. Orders by status — doughnut chart
+  destroyChart("orders");
+  const ordCtx = document.getElementById("chart-orders");
+  if (ordCtx) {
+    const statusLabels = { new: "Новый", confirmed: "Подтверждён", done: "Выполнен", cancelled: "Отменён" };
+    const entries = Object.entries(data.order_stats || {});
+    if (entries.length) {
+      _charts["orders"] = new Chart(ordCtx, {
+        type: "doughnut",
+        data: {
+          labels: entries.map(([s]) => statusLabels[s] || s),
+          datasets: [{
+            data: entries.map(([, v]) => v),
+            backgroundColor: ["#2563eb","#16a34a","#7c3aed","#dc2626"],
+            borderWidth: 0,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: "bottom", labels: { font: { size: 12 } } } },
+          cutout: "65%",
+        },
+      });
+    } else {
+      ordCtx.parentElement.innerHTML = `<p class="muted center" style="padding:60px 0">Заказов пока нет</p>`;
+    }
+  }
+
+  // 4. Top models — bar list
+  const modelsEl = document.getElementById("top-models-list");
+  if (modelsEl && data.top_models.length) {
+    const max = data.top_models[0].stock || 1;
+    modelsEl.innerHTML = data.top_models.map(r => `
+      <div class="top-list-item">
+        <span class="top-list-label">${esc(r.name)}</span>
+        <div class="top-list-bar-wrap">
+          <div class="top-list-bar" style="width:${Math.round(r.stock/max*100)}%"></div>
+        </div>
+        <span class="top-list-value">${r.stock} шт</span>
+      </div>
+    `).join("");
+  } else if (modelsEl) {
+    modelsEl.innerHTML = `<p class="muted center" style="padding:40px 0">Товаров нет</p>`;
+  }
+}
+
 // ── Load all ───────────────────────────────────────────────────────────────────
 async function loadAll() {
   try {
-    const [me, stats, products, orders, messages, sub] = await Promise.all([
+    const [me, stats, products, orders, messages, sub, payInfo, analytics] = await Promise.all([
       api("/shop/me"),
       api("/shop/stats"),
       api(`/shop/products?limit=${catalogLimit}&offset=${catalogOffset}`),
       api("/shop/orders?limit=100"),
       api("/shop/messages?limit=40"),
       api("/shop/subscription").catch(() => null),
+      api("/shop/payment-info").catch(() => null),
+      api("/shop/analytics/overview").catch(() => null),
     ]);
     currentShop = me;
     document.getElementById("shop-name-sidebar").textContent = me.name || "Магазин";
@@ -388,7 +621,9 @@ async function loadAll() {
     renderOrders(orders);
     fillBotSettings(me);
     renderSubscription(sub);
+    renderPaymentInfo(payInfo);
     renderProfile(me);
+    renderAnalytics(analytics);
   } catch (err) {
     showToast(err.message || "Ошибка загрузки", "error");
   }
@@ -449,6 +684,57 @@ document.getElementById("replace-btn").addEventListener("click", async () => {
     const r = await uploadCsv("/shop/import?replace=true");
     showToast(`Каталог заменён: ${r.imported} позиций`, "success"); loadAll();
   } catch (err) { showToast(err.message, "error"); }
+});
+
+// ── Copy-on-click for .copy-on-click elements ──────────────────────────────────
+document.addEventListener("click", (e) => {
+  const el = e.target.closest(".copy-on-click");
+  if (!el) return;
+  const text = el.textContent.trim();
+  if (!text || text.startsWith("—")) return;
+  navigator.clipboard.writeText(text).then(() => showToast("Скопировано", "success"));
+});
+
+// ── 1С XML import ─────────────────────────────────────────────────────────────
+async function upload1cXml(replace) {
+  const fileInput = document.getElementById("xml-1c-file");
+  const resultEl = document.getElementById("xml-1c-result");
+  if (!fileInput.files.length) { showToast("Выберите .xml файл", "error"); return; }
+  const file = fileInput.files[0];
+  if (!file.name.toLowerCase().endsWith(".xml")) { showToast("Нужен .xml файл", "error"); return; }
+
+  const fd = new FormData();
+  fd.append("file", file);
+  const headers = {};
+  if (jwtToken) headers["Authorization"] = `Bearer ${jwtToken}`;
+  // Pass sync_api_key from currentShop for /sync/1c endpoint
+  if (currentShop && currentShop.sync_api_key) {
+    headers["X-API-Key"] = currentShop.sync_api_key;
+  } else {
+    showToast("Сначала сгенерируйте Sync API Key в Боте → Настройки", "error");
+    return;
+  }
+
+  resultEl.classList.add("hidden");
+  try {
+    const res = await fetch(`/sync/1c?replace=${replace}`, { method: "POST", headers, body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
+    resultEl.textContent = `Готово: разобрано ${data.parsed} позиций, обновлено ${data.imported}.`;
+    resultEl.classList.remove("hidden");
+    showToast(`1С: обновлено ${data.imported} позиций`, "success");
+    loadAll();
+  } catch (err) {
+    showToast(err.message, "error");
+    resultEl.textContent = err.message;
+    resultEl.classList.remove("hidden");
+  }
+}
+
+document.getElementById("xml-1c-btn").addEventListener("click", () => upload1cXml(false));
+document.getElementById("xml-1c-replace-btn").addEventListener("click", async () => {
+  if (!confirm("Заменить весь каталог данными из 1С? Старые товары будут удалены.")) return;
+  await upload1cXml(true);
 });
 
 document.getElementById("save-bot-settings").addEventListener("click", async () => {
@@ -535,6 +821,83 @@ document.getElementById("profile-change-pwd-btn").addEventListener("click", asyn
 // ── Register form ──────────────────────────────────────────────────────────────
 document.getElementById("show-register").addEventListener("click", showRegister);
 document.getElementById("show-login").addEventListener("click", showLogin);
+
+// ── Forgot password ────────────────────────────────────────────────────────────
+document.getElementById("show-forgot").addEventListener("click", showForgot);
+document.getElementById("show-login-from-forgot").addEventListener("click", showLogin);
+
+document.getElementById("forgot-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email  = document.getElementById("forgot-email").value.trim();
+  const errEl  = document.getElementById("forgot-error");
+  const okEl   = document.getElementById("forgot-success");
+  const btn    = e.target.querySelector("button[type=submit]");
+  errEl.classList.add("hidden");
+  okEl.classList.add("hidden");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/shop/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    okEl.textContent = data.message || "Письмо отправлено! Проверьте почту.";
+    okEl.classList.remove("hidden");
+  } catch (err) {
+    errEl.textContent = err.message || "Ошибка сервера, попробуйте позже";
+    errEl.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ── Reset password (from email link) ──────────────────────────────────────────
+(function checkResetToken() {
+  const params = new URLSearchParams(window.location.search);
+  const token  = params.get("token");
+  if (!token) return;
+  loginScreen.classList.add("hidden");
+  resetScreen.classList.remove("hidden");
+
+  document.getElementById("reset-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pwd   = document.getElementById("reset-password").value;
+    const pwd2  = document.getElementById("reset-password2").value;
+    const errEl = document.getElementById("reset-error");
+    const okEl  = document.getElementById("reset-success");
+    const btn   = e.target.querySelector("button[type=submit]");
+    errEl.classList.add("hidden");
+    okEl.classList.add("hidden");
+    if (pwd !== pwd2) {
+      errEl.textContent = "Пароли не совпадают";
+      errEl.classList.remove("hidden");
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const res = await fetch("/shop/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password: pwd }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Ошибка");
+      okEl.textContent = "Пароль изменён! Теперь войдите с новым паролем.";
+      okEl.classList.remove("hidden");
+      btn.disabled = true;
+      setTimeout(() => {
+        history.replaceState({}, "", "/shop");
+        showLogin();
+      }, 2500);
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove("hidden");
+      btn.disabled = false;
+    }
+  });
+})();
 
 document.getElementById("register-form").addEventListener("submit", async (e) => {
   e.preventDefault();

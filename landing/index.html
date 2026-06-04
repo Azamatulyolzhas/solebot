@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SoleBot — AI Telegram-бот для магазина кроссовок</title>
+  <meta name="description" content="Подключите умного Telegram-бота для вашего магазина кроссовок. ИИ отвечает на вопросы, принимает заказы, синхронизирует остатки с 1С и МойСклад.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/landing/static/styles.css?v=1">
+</head>
+<body>
+
+<!-- ═══════════════════════════════ NAVBAR ═══════════════════════════════════ -->
+<header class="navbar" id="navbar">
+  <div class="container nav-inner">
+    <a class="logo" href="/">
+      <div class="logo-icon">S</div>
+      <span>SoleBot</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#features">Возможности</a>
+      <a href="#how">Как работает</a>
+      <a href="#integrations">Интеграции</a>
+      <a href="#pricing">Тарифы</a>
+    </nav>
+    <div class="nav-cta">
+      <a href="/shop" class="btn-outline">Войти</a>
+      <a href="#pricing" class="btn-primary">Попробовать бесплатно</a>
+    </div>
+    <button class="burger" id="burger" aria-label="Меню">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+  <div class="mobile-menu" id="mobile-menu">
+    <a href="#features">Возможности</a>
+    <a href="#how">Как работает</a>
+    <a href="#integrations">Интеграции</a>
+    <a href="#pricing">Тарифы</a>
+    <a href="/shop" class="mob-login">Войти</a>
+    <a href="#pricing" class="btn-primary w-full">Попробовать бесплатно</a>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════ HERO ═════════════════════════════════════ -->
+<section class="hero">
+  <div class="hero-bg">
+    <div class="hero-blob blob-1"></div>
+    <div class="hero-blob blob-2"></div>
+    <div class="hero-blob blob-3"></div>
+  </div>
+  <div class="container hero-inner">
+    <div class="hero-content">
+      <div class="hero-badge">
+        <span class="badge-dot"></span>
+        Telegram · AI · Казахстан
+      </div>
+      <h1 class="hero-title">
+        Умный Telegram-бот<br>
+        <span class="gradient-text">для вашего магазина</span><br>
+        кроссовок
+      </h1>
+      <p class="hero-desc">
+        Бот сам отвечает на вопросы клиентов, проверяет наличие, принимает заказы
+        и обновляет каталог в реальном времени. Вы занимаетесь продажами — мы занимаемся остальным.
+      </p>
+      <div class="hero-actions">
+        <a href="#register" class="btn-hero" id="hero-cta">
+          Подключить магазин
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <a href="#how" class="btn-hero-ghost">Как это работает</a>
+      </div>
+      <div class="hero-trust">
+        <div class="trust-item">
+          <strong id="stat-shops">50+</strong>
+          <span>магазинов</span>
+        </div>
+        <div class="trust-divider"></div>
+        <div class="trust-item">
+          <strong id="stat-msgs">10 000+</strong>
+          <span>диалогов</span>
+        </div>
+        <div class="trust-divider"></div>
+        <div class="trust-item">
+          <strong>24/7</strong>
+          <span>без выходных</span>
+        </div>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="phone-mockup">
+        <div class="phone-screen">
+          <div class="chat-header">
+            <div class="chat-avatar">S</div>
+            <div>
+              <div class="chat-name">SoleBot</div>
+              <div class="chat-online">В сети</div>
+            </div>
+          </div>
+          <div class="chat-body">
+            <div class="msg msg-user">Есть Nike Air Force 1 42 размер?</div>
+            <div class="msg msg-bot">
+              Да! Nike Air Force 1 Low White 42 — <strong>3 пары</strong> в наличии.<br>
+              Цена: <strong>45 000 ₸</strong> 🔥
+            </div>
+            <div class="msg msg-user">Хочу заказать</div>
+            <div class="msg msg-bot">
+              Отлично! Введите ваш адрес доставки и я оформлю заказ 📦
+            </div>
+            <div class="chat-typing">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ LOGOS ════════════════════════════════════ -->
+<section class="logos-bar">
+  <div class="container">
+    <p class="logos-label">Работает с вашими системами учёта</p>
+    <div class="logos-row">
+      <div class="logo-chip">1С:Розница</div>
+      <div class="logo-chip">1С:УТ</div>
+      <div class="logo-chip">МойСклад</div>
+      <div class="logo-chip">Excel / CSV</div>
+      <div class="logo-chip">REST API</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ FEATURES ════════════════════════════════ -->
+<section class="section" id="features">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-tag">Возможности</div>
+      <h2 class="section-title">Всё что нужно<br>для продаж в Telegram</h2>
+      <p class="section-desc">Один бот заменяет менеджера, каталог и CRM</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card feature-big">
+        <div class="feat-icon feat-blue">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        </div>
+        <h3>AI-поиск по каталогу</h3>
+        <p>Клиент пишет "есть адидас белые 43?" — бот мгновенно находит нужные позиции и показывает наличие и цену.</p>
+        <div class="feat-example">
+          <div class="ex-msg user">adidas campus белые 42</div>
+          <div class="ex-msg bot">Adidas Campus 00s White 42 — 2 пары · 38 000 ₸</div>
+        </div>
+      </div>
+      <div class="feature-card">
+        <div class="feat-icon feat-green">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        </div>
+        <h3>Приём заказов</h3>
+        <p>Бот оформляет заказы прямо в чате. Уведомляет вас и ведёт историю.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feat-icon feat-purple">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+        </div>
+        <h3>Аналитика</h3>
+        <p>Графики активности, топ запрашиваемых товаров, уникальные клиенты — всё в личном кабинете.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feat-icon feat-orange">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        </div>
+        <h3>Синхронизация остатков</h3>
+        <p>Остатки обновляются автоматически из 1С, МойСклад или через API. Бот никогда не продаёт то, чего нет.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feat-icon feat-pink">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <h3>Мультимагазин</h3>
+        <p>Каждый магазин — отдельный бот со своим каталогом, настройками и кабинетом. Масштабируется без ограничений.</p>
+      </div>
+      <div class="feature-card feature-dark">
+        <h3>Готов за 5 минут</h3>
+        <p>Зарегистрируйте магазин, загрузите каталог CSV, подключите Telegram-бот. Больше ничего не нужно.</p>
+        <a href="#register" class="btn-white mt-auto">Начать →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ HOW IT WORKS ═════════════════════════════ -->
+<section class="section bg-gray" id="how">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-tag">Как работает</div>
+      <h2 class="section-title">Запуск за 3 шага</h2>
+    </div>
+    <div class="steps-row">
+      <div class="step-card">
+        <div class="step-num">01</div>
+        <div class="step-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </div>
+        <h3>Регистрируйтесь</h3>
+        <p>Создайте аккаунт магазина. Укажите название и контактные данные. Это займёт 2 минуты.</p>
+      </div>
+      <div class="step-arrow">→</div>
+      <div class="step-card">
+        <div class="step-num">02</div>
+        <div class="step-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <h3>Загрузите каталог</h3>
+        <p>Импортируйте товары через CSV, 1С или МойСклад. Или добавьте вручную. Дальше остатки обновляются сами.</p>
+      </div>
+      <div class="step-arrow">→</div>
+      <div class="step-card">
+        <div class="step-num">03</div>
+        <div class="step-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.5 2h-19A1.5 1.5 0 0 0 1 3.5v13A1.5 1.5 0 0 0 2.5 18H9l3 4 3-4h6.5a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 21.5 2z"/></svg>
+        </div>
+        <h3>Подключите бота</h3>
+        <p>Вставьте токен вашего Telegram-бота в настройках. Готово — бот начинает отвечать клиентам.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ INTEGRATIONS ════════════════════════════ -->
+<section class="section" id="integrations">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-tag">Интеграции</div>
+      <h2 class="section-title">Работает с вашей<br>системой учёта</h2>
+      <p class="section-desc">Не нужно менять привычные инструменты</p>
+    </div>
+    <div class="integrations-grid">
+      <div class="int-card">
+        <div class="int-logo int-1c">1С</div>
+        <h4>1С:Розница / УТ</h4>
+        <p>Автоматический обмен через протокол "Обмен с сайтом". Настраивается один раз, данные обновляются по расписанию.</p>
+        <div class="int-badge">Авто</div>
+      </div>
+      <div class="int-card">
+        <div class="int-logo int-ms">МС</div>
+        <h4>МойСклад</h4>
+        <p>Вебхук на каждую продажу или отгрузку. Остатки обновляются мгновенно после каждой операции.</p>
+        <div class="int-badge">Вебхук</div>
+      </div>
+      <div class="int-card">
+        <div class="int-logo int-csv">CSV</div>
+        <h4>Excel / Google Sheets</h4>
+        <p>Экспортируйте таблицу в CSV и загрузите в личном кабинете. Формат простой — 8 колонок.</p>
+        <div class="int-badge">Загрузка</div>
+      </div>
+      <div class="int-card">
+        <div class="int-logo int-api">API</div>
+        <h4>REST API</h4>
+        <p>Отправляйте остатки из любой системы через HTTP POST. Документация и ключ в личном кабинете.</p>
+        <div class="int-badge">API</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ PRICING ══════════════════════════════════ -->
+<section class="section bg-gray" id="pricing">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-tag">Тарифы</div>
+      <h2 class="section-title">Просто и прозрачно</h2>
+      <p class="section-desc">Начните бесплатно, масштабируйтесь по мере роста</p>
+    </div>
+    <div class="pricing-grid">
+      <div class="plan-card">
+        <div class="plan-name">Старт</div>
+        <div class="plan-price">Бесплатно</div>
+        <div class="plan-period">навсегда</div>
+        <ul class="plan-features">
+          <li><span class="check">✓</span> До 500 товаров</li>
+          <li><span class="check">✓</span> 100 сообщений/месяц</li>
+          <li><span class="check">✓</span> CSV-импорт</li>
+          <li><span class="check">✓</span> Приём заказов</li>
+          <li><span class="muted-feat">✗</span> Интеграции 1С / МойСклад</li>
+          <li><span class="muted-feat">✗</span> Аналитика</li>
+        </ul>
+        <a href="#register" class="btn-plan btn-plan-ghost">Начать бесплатно</a>
+      </div>
+
+      <div class="plan-card plan-popular">
+        <div class="popular-label">Популярный</div>
+        <div class="plan-name">Бизнес</div>
+        <div class="plan-price">9 900 <span>₸/мес</span></div>
+        <div class="plan-period">или 89 000 ₸/год (−25%)</div>
+        <ul class="plan-features">
+          <li><span class="check">✓</span> До 5 000 товаров</li>
+          <li><span class="check">✓</span> 5 000 сообщений/месяц</li>
+          <li><span class="check">✓</span> CSV, API</li>
+          <li><span class="check">✓</span> Приём заказов</li>
+          <li><span class="check">✓</span> Интеграция 1С / МойСклад</li>
+          <li><span class="check">✓</span> Аналитика</li>
+        </ul>
+        <a href="#register" class="btn-plan btn-plan-primary">Подключить</a>
+      </div>
+
+      <div class="plan-card">
+        <div class="plan-name">Про</div>
+        <div class="plan-price">24 900 <span>₸/мес</span></div>
+        <div class="plan-period">или 219 000 ₸/год (−27%)</div>
+        <ul class="plan-features">
+          <li><span class="check">✓</span> Без ограничений на товары</li>
+          <li><span class="check">✓</span> Безлимит сообщений</li>
+          <li><span class="check">✓</span> Все интеграции</li>
+          <li><span class="check">✓</span> Приоритетная поддержка</li>
+          <li><span class="check">✓</span> Кастомный промпт</li>
+          <li><span class="check">✓</span> White-label бот</li>
+        </ul>
+        <a href="#register" class="btn-plan btn-plan-ghost">Подключить</a>
+      </div>
+    </div>
+    <p class="pricing-note">Оплата через Kaspi · Банковский перевод · Счёт для юр. лиц</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ REGISTER CTA ════════════════════════════ -->
+<section class="section cta-section" id="register">
+  <div class="container">
+    <div class="cta-card">
+      <div class="cta-content">
+        <h2>Готовы подключить магазин?</h2>
+        <p>Регистрация занимает 2 минуты. Первые 100 диалогов — бесплатно.</p>
+        <a href="/shop" class="btn-hero" id="register-btn">
+          Зарегистрировать магазин
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <p class="cta-note">Уже есть аккаунт? <a href="/shop">Войти →</a></p>
+      </div>
+      <div class="cta-visual">
+        <div class="cta-blob"></div>
+        <div class="cta-stats">
+          <div class="cta-stat">
+            <strong>5 мин</strong>
+            <span>до первого ответа бота</span>
+          </div>
+          <div class="cta-stat">
+            <strong>0 ₸</strong>
+            <span>для старта</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ FOOTER ═══════════════════════════════════ -->
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <a class="logo" href="/">
+        <div class="logo-icon logo-sm">S</div>
+        <span>SoleBot</span>
+      </a>
+      <p class="footer-desc">AI Telegram-бот для магазинов кроссовок и одежды. Казахстан и СНГ.</p>
+    </div>
+    <div class="footer-links">
+      <div class="footer-col">
+        <h5>Продукт</h5>
+        <a href="#features">Возможности</a>
+        <a href="#integrations">Интеграции</a>
+        <a href="#pricing">Тарифы</a>
+      </div>
+      <div class="footer-col">
+        <h5>Для магазинов</h5>
+        <a href="/shop">Личный кабинет</a>
+        <a href="/shop">Регистрация</a>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="container">
+      <span>© 2026 SoleBot</span>
+      <span class="footer-sep">·</span>
+      <span>Казахстан</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/landing/static/app.js?v=1"></script>
+</body>
+</html>

@@ -175,7 +175,7 @@ def get_shop_by_id(shop_id: int) -> dict | None:
     try:
         ph = db_placeholder()
         rows = fetch_all(
-            f"SELECT id, name, slug, owner_email, status, tg_token, tg_webhook_secret, groq_system_prompt, created_at FROM shops WHERE id = {ph} LIMIT 1",
+            f"SELECT id, name, slug, owner_email, status, tg_token, tg_webhook_secret, groq_system_prompt, moysklad_token, sync_api_key, created_at FROM shops WHERE id = {ph} LIMIT 1",
             (shop_id,),
         )
         return rows[0] if rows else None
@@ -254,6 +254,188 @@ def get_shop_subscription_detail(shop_id: int) -> dict | None:
     except Exception as e:
         log.error(f"Get subscription detail failed: {e}")
         return None
+
+
+def extend_shop_subscription(shop_id: int, plan: str, days: int, messages_limit: int) -> bool:
+    """Manually activate or extend subscription for a shop."""
+    ph = db_placeholder()
+    try:
+        existing = fetch_one_value(
+            f"SELECT id FROM subscriptions WHERE shop_id = {ph} LIMIT 1", (shop_id,)
+        )
+        if existing:
+            if USE_POSTGRES:
+                execute_write(
+                    f"""
+                    UPDATE subscriptions
+                    SET plan = {ph}, status = {ph}, messages_limit = {ph},
+                        period_ends_at = NOW() + INTERVAL '{days} days'
+                    WHERE shop_id = {ph}
+                    """,
+                    (plan, "active", messages_limit, shop_id),
+                )
+            else:
+                execute_write(
+                    f"""
+                    UPDATE subscriptions
+                    SET plan = {ph}, status = {ph}, messages_limit = {ph},
+                        period_ends_at = datetime('now', '+{days} days')
+                    WHERE shop_id = {ph}
+                    """,
+                    (plan, "active", messages_limit, shop_id),
+                )
+        else:
+            if USE_POSTGRES:
+                execute_write(
+                    f"""
+                    INSERT INTO subscriptions (shop_id, plan, status, messages_limit, channels_limit, period_ends_at)
+                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, NOW() + INTERVAL '{days} days')
+                    """,
+                    (shop_id, plan, "active", messages_limit, 3),
+                )
+            else:
+                execute_write(
+                    f"""
+                    INSERT INTO subscriptions (shop_id, plan, status, messages_limit, channels_limit, period_ends_at)
+                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, datetime('now', '+{days} days'))
+                    """,
+                    (shop_id, plan, "active", messages_limit, 3),
+                )
+        return True
+    except Exception as e:
+        log.error(f"Extend subscription failed: {e}")
+        return False
+
+
+def is_subscription_active(shop_id: int) -> bool:
+    """Check if shop has an active subscription (trial or paid, not expired)."""
+    try:
+        ph = db_placeholder()
+        if USE_POSTGRES:
+            rows = fetch_all(
+                f"""
+                SELECT id FROM subscriptions
+                WHERE shop_id = {ph} AND status = 'active'
+                  AND (
+                    (trial_ends_at IS NOT NULL AND trial_ends_at > NOW()) OR
+                    (period_ends_at IS NOT NULL AND period_ends_at > NOW())
+                  )
+                LIMIT 1
+                """,
+                (shop_id,),
+            )
+        else:
+            rows = fetch_all(
+                f"""
+                SELECT id FROM subscriptions
+                WHERE shop_id = {ph} AND status = 'active'
+                  AND (
+                    (trial_ends_at IS NOT NULL AND trial_ends_at > datetime('now')) OR
+                    (period_ends_at IS NOT NULL AND period_ends_at > datetime('now'))
+                  )
+                LIMIT 1
+                """,
+                (shop_id,),
+            )
+        return bool(rows)
+    except Exception as e:
+        log.error(f"Check subscription failed: {e}")
+        return True  # fail open — don't block bot on DB error
+
+
+def get_shop_by_sync_api_key(api_key: str) -> dict | None:
+    """Find shop by its sync API key."""
+    try:
+        ph = db_placeholder()
+        rows = fetch_all(
+            f"SELECT id, name, slug, moysklad_token FROM shops WHERE sync_api_key = {ph} LIMIT 1",
+            (api_key,),
+        )
+        return rows[0] if rows else None
+    except Exception as e:
+        log.error(f"Get shop by api key failed: {e}")
+        return None
+
+
+def generate_sync_api_key(shop_id: int) -> str:
+    """Generate and save a new sync API key for the shop."""
+    import secrets
+    api_key = "sk_" + secrets.token_urlsafe(32)
+    ph = db_placeholder()
+    execute_write(f"UPDATE shops SET sync_api_key = {ph} WHERE id = {ph}", (api_key, shop_id))
+    return api_key
+
+
+def save_moysklad_token(shop_id: int, token: str) -> None:
+    ph = db_placeholder()
+    execute_write(f"UPDATE shops SET moysklad_token = {ph} WHERE id = {ph}", (token, shop_id))
+
+
+def clear_moysklad_token(shop_id: int) -> None:
+    ph = db_placeholder()
+    execute_write(f"UPDATE shops SET moysklad_token = NULL WHERE id = {ph}", (shop_id,))
+
+
+def create_password_reset_token(shop_id: int) -> str | None:
+    """Create a one-time password reset token valid for 1 hour."""
+    import secrets
+    token = secrets.token_urlsafe(32)
+    ph = db_placeholder()
+    try:
+        if USE_POSTGRES:
+            execute_write(
+                f"""
+                INSERT INTO password_reset_tokens (shop_id, token, expires_at)
+                VALUES ({ph}, {ph}, NOW() + INTERVAL '1 hour')
+                """,
+                (shop_id, token),
+            )
+        else:
+            execute_write(
+                f"""
+                INSERT INTO password_reset_tokens (shop_id, token, expires_at)
+                VALUES ({ph}, {ph}, datetime('now', '+1 hour'))
+                """,
+                (shop_id, token),
+            )
+        return token
+    except Exception as e:
+        log.error(f"Create password reset token failed: {e}")
+        return None
+
+
+def get_valid_reset_token(token: str) -> dict | None:
+    """Return token row if valid (not used, not expired)."""
+    try:
+        ph = db_placeholder()
+        if USE_POSTGRES:
+            rows = fetch_all(
+                f"""
+                SELECT id, shop_id FROM password_reset_tokens
+                WHERE token = {ph} AND used = FALSE AND expires_at > NOW()
+                LIMIT 1
+                """,
+                (token,),
+            )
+        else:
+            rows = fetch_all(
+                f"""
+                SELECT id, shop_id FROM password_reset_tokens
+                WHERE token = {ph} AND used = 0 AND expires_at > datetime('now')
+                LIMIT 1
+                """,
+                (token,),
+            )
+        return rows[0] if rows else None
+    except Exception as e:
+        log.error(f"Get valid reset token failed: {e}")
+        return None
+
+
+def consume_reset_token(token_id: int) -> None:
+    """Mark token as used so it can't be reused."""
+    ph = db_placeholder()
+    execute_write(f"UPDATE password_reset_tokens SET used = TRUE WHERE id = {ph}", (token_id,))
 
 
 def get_shop_by_webhook_secret(secret: str) -> dict | None:

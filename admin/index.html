@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SoleBot Admin</title>
-  <link rel="stylesheet" href="/admin/static/styles.css?v=4">
+  <link rel="stylesheet" href="/admin/static/styles.css?v=5">
 </head>
 <body>
   <div id="login-screen" class="login-screen hidden">
@@ -189,13 +189,12 @@
             <table>
               <thead><tr>
                 <th>ID</th>
-                <th>Название</th>
-                <th>Email</th>
+                <th>Магазин</th>
                 <th>Slug</th>
-                <th>Тариф</th>
-                <th>Подписка до</th>
+                <th>Подписка</th>
                 <th>Статус</th>
                 <th>Зарегистрирован</th>
+                <th></th>
               </tr></thead>
               <tbody id="shops-body"></tbody>
             </table>
@@ -205,7 +204,31 @@
     </main>
   </div>
 
+  <!-- Subscription modal -->
+  <div id="sub-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="sub-modal-title">Подписка</h3>
+        <button id="sub-modal-close" class="modal-close">✕</button>
+      </div>
+      <form id="sub-modal-form">
+        <input type="hidden" id="sub-modal-shop-id">
+        <label>Тариф
+          <select id="sub-modal-plan">
+            <option value="trial">Trial — 500 сообщений</option>
+            <option value="basic" selected>Basic — 2000 сообщений</option>
+            <option value="pro">Pro — безлимит</option>
+          </select>
+        </label>
+        <label>Дней
+          <input type="number" id="sub-modal-days" value="30" min="1" max="365">
+        </label>
+        <button type="submit" class="btn-accent" style="width:100%;margin-top:12px">Активировать</button>
+      </form>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden"></div>
-  <script src="/admin/static/app.js?v=4"></script>
+  <script src="/admin/static/app.js?v=5"></script>
 </body>
 </html>

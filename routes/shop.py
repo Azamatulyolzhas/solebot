@@ -22,12 +22,19 @@ from products import (
     update_product,
     validate_product_csv,
 )
+from email_service import send_password_reset, send_shop_registered
 from shops import (
+    clear_moysklad_token,
     clear_shop_tg_token,
+    consume_reset_token,
+    create_password_reset_token,
     create_pending_shop,
+    generate_sync_api_key,
     get_shop_by_email,
     get_shop_by_id,
     get_shop_subscription_detail,
+    get_valid_reset_token,
+    save_moysklad_token,
     save_shop_tg_token,
     set_shop_owner_password,
     update_shop_settings,
@@ -103,6 +110,7 @@ async def shop_register(body: RegisterRequest):
         shop_id = create_pending_shop(body.shop_name.strip(), body.email, pwd_hash)
         if not shop_id:
             raise HTTPException(500, "Не удалось создать магазин, попробуйте позже")
+        send_shop_registered(body.shop_name.strip(), body.email)
         return {
             "ok": True,
             "message": "Заявка отправлена. После проверки вы получите доступ к кабинету.",
@@ -112,6 +120,40 @@ async def shop_register(body: RegisterRequest):
     except Exception as e:
         log.exception("Register failed")
         raise HTTPException(500, f"Ошибка сервера: {e}") from e
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
+
+
+@router.post("/forgot-password")
+async def shop_forgot_password(body: ForgotPasswordRequest):
+    """Send password reset email. Always returns 200 to avoid email enumeration."""
+    shop = get_shop_by_email(body.email)
+    if shop:
+        token = create_password_reset_token(shop["id"])
+        if token:
+            send_password_reset(body.email, token)
+    return {"ok": True, "message": "Если аккаунт существует — письмо отправлено"}
+
+
+@router.post("/reset-password")
+async def shop_reset_password(body: ResetPasswordRequest):
+    """Validate reset token and set new password."""
+    if len(body.password) < 8:
+        raise HTTPException(400, "Пароль должен быть не менее 8 символов")
+    token_row = get_valid_reset_token(body.token)
+    if not token_row:
+        raise HTTPException(400, "Ссылка недействительна или истекла")
+    pwd_hash = hash_password(body.password)
+    set_shop_owner_password(token_row["shop_id"], pwd_hash)
+    consume_reset_token(token_row["id"])
+    return {"ok": True, "message": "Пароль успешно изменён"}
 
 
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
@@ -158,7 +200,76 @@ async def shop_me(shop: dict = Depends(get_current_shop)):
         "owner_email": shop["owner_email"],
         "groq_system_prompt": shop.get("groq_system_prompt") or "",
         "has_tg_bot": bool(shop.get("tg_token")),
+        "has_moysklad": bool(shop.get("moysklad_token")),
+        "sync_api_key": shop.get("sync_api_key") or None,
         "subscription": sub,
+    }
+
+
+@router.get("/analytics/overview")
+async def analytics_overview(shop: dict = Depends(get_current_shop)):
+    from db import fetch_all, db_placeholder
+    import config as _cfg
+    sid = shop["id"]
+    ph = db_placeholder()
+    try:
+        if _cfg.USE_POSTGRES:
+            daily = fetch_all(f"""
+                SELECT DATE(m.created_at) AS day, COUNT(*) AS cnt
+                FROM messages m
+                JOIN conversations c ON c.id = m.conversation_id
+                WHERE c.shop_id = {ph}
+                  AND m.role = 'user'
+                  AND m.created_at >= NOW() - INTERVAL '14 days'
+                GROUP BY day ORDER BY day
+            """, (sid,))
+        else:
+            daily = fetch_all(f"""
+                SELECT DATE(m.created_at) AS day, COUNT(*) AS cnt
+                FROM messages m
+                JOIN conversations c ON c.id = m.conversation_id
+                WHERE c.shop_id = {ph}
+                  AND m.role = 'user'
+                  AND m.created_at >= datetime('now','-14 days')
+                GROUP BY day ORDER BY day
+            """, (sid,))
+
+        top_brands = fetch_all(f"""
+            SELECT brand, COUNT(*) AS cnt
+            FROM sneakers WHERE shop_id = {ph} AND quantity > 0
+            GROUP BY brand ORDER BY cnt DESC LIMIT 8
+        """, (sid,))
+
+        # Unique users
+        uniq = fetch_all(f"""
+            SELECT COUNT(DISTINCT external_user_id) AS cnt
+            FROM conversations WHERE shop_id = {ph}
+        """, (sid,))
+
+        # Orders by status
+        order_stats = fetch_all(f"""
+            SELECT status, COUNT(*) AS cnt
+            FROM orders WHERE shop_id = {ph}
+            GROUP BY status
+        """, (sid,))
+
+        # Top requested models (from messages containing brand/model names)
+        top_models = fetch_all(f"""
+            SELECT brand || ' ' || model AS name, SUM(quantity) AS stock
+            FROM sneakers WHERE shop_id = {ph}
+            GROUP BY brand, model ORDER BY stock DESC LIMIT 8
+        """, (sid,))
+
+    except Exception as e:
+        log.error("analytics_overview failed: %s", e)
+        return {"error": str(e)}
+
+    return {
+        "daily_messages": [{"day": str(r["day"]), "cnt": r["cnt"]} for r in daily],
+        "top_brands":     [{"brand": r["brand"], "cnt": r["cnt"]} for r in top_brands],
+        "top_models":     [{"name": r["name"], "stock": r["stock"]} for r in top_models],
+        "unique_users":   uniq[0]["cnt"] if uniq else 0,
+        "order_stats":    {r["status"]: r["cnt"] for r in order_stats},
     }
 
 
@@ -285,7 +396,46 @@ async def shop_subscription(shop: dict = Depends(get_current_shop)):
     return sub
 
 
+@router.get("/payment-info")
+async def shop_payment_info(_: dict = Depends(get_current_shop)):
+    from config import PAYMENT_DETAILS, PAYMENT_KASPI
+    return {
+        "kaspi": PAYMENT_KASPI,
+        "details": PAYMENT_DETAILS,
+        "plans": [
+            {"id": "basic", "name": "Basic", "price": "$29/мес", "messages": 2000},
+            {"id": "pro",   "name": "Pro",   "price": "$79/мес", "messages": None},
+        ],
+    }
+
+
 # ── Telegram bot connection ────────────────────────────────────────────────────
+
+class MoyskladTokenRequest(BaseModel):
+    token: str
+
+
+@router.post("/moysklad-connect")
+async def shop_moysklad_connect(body: MoyskladTokenRequest, shop: dict = Depends(get_current_shop)):
+    """Save МойСклад API token for the shop."""
+    if not body.token.strip():
+        raise HTTPException(400, "Токен не может быть пустым")
+    save_moysklad_token(shop["id"], body.token.strip())
+    return {"ok": True}
+
+
+@router.delete("/moysklad-connect")
+async def shop_moysklad_disconnect(shop: dict = Depends(get_current_shop)):
+    clear_moysklad_token(shop["id"])
+    return {"ok": True}
+
+
+@router.post("/sync-api-key")
+async def shop_generate_api_key(shop: dict = Depends(get_current_shop)):
+    """Generate (or regenerate) a sync API key for this shop."""
+    key = generate_sync_api_key(shop["id"])
+    return {"ok": True, "api_key": key}
+
 
 class BotConnectRequest(BaseModel):
     tg_token: str

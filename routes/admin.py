@@ -17,7 +17,8 @@ from config import ADMIN_TOKEN, TELEGRAM_WEBHOOK_URL, USE_POSTGRES
 from conversations import log_analytics_event
 from orders import ORDER_STATUSES, list_orders, update_order_status
 from products import import_products, list_products, products_to_csv, update_product, validate_product_csv
-from shops import get_default_shop_id, list_pending_shops, list_shops, update_shop_status
+from email_service import send_shop_approved, send_shop_rejected
+from shops import extend_shop_subscription, get_default_shop_id, get_shop_by_id, list_pending_shops, list_shops, update_shop_status
 from telegram_bot import shop_bots
 
 log = logging.getLogger(__name__)
@@ -147,7 +148,42 @@ async def admin_update_shop_status(shop_id: int, body: ShopStatusPatch, request:
     if body.status not in allowed:
         raise HTTPException(400, f"status must be one of: {', '.join(allowed)}")
     update_shop_status(shop_id, body.status)
+
+    shop = get_shop_by_id(shop_id)
+    if shop and shop.get("owner_email"):
+        if body.status == "active":
+            send_shop_approved(shop["name"], shop["owner_email"])
+        elif body.status == "rejected":
+            send_shop_rejected(shop["name"], shop["owner_email"])
+
     return {"ok": True, "shop_id": shop_id, "status": body.status}
+
+
+class SubscriptionPatch(BaseModel):
+    plan: str        # "basic" | "pro"
+    days: int = 30   # how many days to add
+
+
+PLAN_LIMITS = {
+    "trial":  500,
+    "basic":  2000,
+    "pro":    999999,
+}
+
+
+@router.patch("/shops/{shop_id}/subscription")
+async def admin_extend_subscription(shop_id: int, body: SubscriptionPatch, request: Request):
+    require_admin(request)
+    allowed_plans = tuple(PLAN_LIMITS.keys())
+    if body.plan not in allowed_plans:
+        raise HTTPException(400, f"plan must be one of: {', '.join(allowed_plans)}")
+    if not 1 <= body.days <= 365:
+        raise HTTPException(400, "days must be between 1 and 365")
+    messages_limit = PLAN_LIMITS[body.plan]
+    ok = extend_shop_subscription(shop_id, body.plan, body.days, messages_limit)
+    if not ok:
+        raise HTTPException(500, "Failed to update subscription")
+    return {"ok": True, "shop_id": shop_id, "plan": body.plan, "days": body.days}
 
 
 @router.get("/shops")

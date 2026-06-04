@@ -40,6 +40,7 @@ redis>=5.2,<6
 PyJWT>=2.8,<3
 passlib[bcrypt]>=1.7,<2
 bcrypt>=3.2,<4
+resend>=2.0,<3
 PyYAML==6.0.3
 rich==15.0.0
 rich-toolkit==0.19.7
