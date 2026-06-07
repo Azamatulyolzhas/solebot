@@ -9,10 +9,19 @@ log = logging.getLogger(__name__)
 
 
 def split_user_id(user_id: str) -> tuple[str, str]:
-    if "_" not in user_id:
-        return "unknown", user_id
-    channel, external_user_id = user_id.split("_", 1)
-    return channel, external_user_id
+    """Parse channel user ids: tg_{shop_id}_{telegram_id}, wa_{phone}, web_{session}."""
+    if not user_id:
+        return "unknown", ""
+    if user_id.startswith("tg_"):
+        parts = user_id.split("_")
+        if len(parts) >= 3:
+            return "tg", "_".join(parts[2:])
+        if len(parts) == 2:
+            return "tg", parts[1]
+    if "_" in user_id:
+        channel, external_user_id = user_id.split("_", 1)
+        return channel, external_user_id
+    return "unknown", user_id
 
 
 def get_or_create_conversation(channel: str, external_user_id: str, shop_id: int | None = None) -> int:

@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     await close_default_bot()
 
 
-app = FastAPI(title="SoleBot", lifespan=lifespan)
+app = FastAPI(title="SaleBot", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -68,6 +68,25 @@ async def landing_page():
 @app.get("/dashboard", include_in_schema=False)
 async def redirect_dashboard():
     return RedirectResponse(url="/shop", status_code=301)
+
+
+LEGAL_DIR = LANDING_DIR / "legal"
+
+
+@app.get("/legal/offer", include_in_schema=False)
+async def legal_offer():
+    page = LEGAL_DIR / "offer.html"
+    if page.exists():
+        return HTMLResponse(page.read_text(encoding="utf-8"))
+    raise HTTPException(404)
+
+
+@app.get("/legal/privacy", include_in_schema=False)
+async def legal_privacy():
+    page = LEGAL_DIR / "privacy.html"
+    if page.exists():
+        return HTMLResponse(page.read_text(encoding="utf-8"))
+    raise HTTPException(404)
 
 if LANDING_DIR.exists():
     app.mount("/landing/static", StaticFiles(directory=str(LANDING_DIR)), name="landing_static")

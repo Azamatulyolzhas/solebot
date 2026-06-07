@@ -15,8 +15,8 @@ from config import (
 from admin_service import get_database_status
 from cache import get_redis_status
 from instagram_client import send_instagram
-from products import get_models_summary, list_in_stock_brands
-from shops import get_default_shop_id
+from products import get_catalog_summary, list_in_stock_categories, search_products_db
+from shops import get_default_shop_id, resolve_shop_id
 from whatsapp_client import send_whatsapp
 
 log = logging.getLogger(__name__)
@@ -37,36 +37,23 @@ async def store_page():
 
 
 @router.get("/api/catalog")
-async def public_catalog(brand: str = "", size: float = 0):
-    """Публичный каталог для сайта клиентов. Группировка по модели."""
+async def public_catalog(category: str = "", q: str = ""):
+    """Публичный каталог для сайта клиентов."""
     shop_id = get_default_shop_id()
-    rows = get_models_summary(shop_id, limit=200)
-    brands = list_in_stock_brands(shop_id)
+    rows = get_catalog_summary(shop_id, limit=200)
+    categories = list_in_stock_categories(shop_id)
 
-    if brand:
-        rows = [r for r in rows if r["brand"].lower() == brand.lower()]
-    if size:
-        from products import fetch_skus_for_models
-        from db import db_placeholder, fetch_all
-        from config import USE_POSTGRES
-        from shops import resolve_shop_id
-        ph = db_placeholder()
-        sid = resolve_shop_id(shop_id)
-        if USE_POSTGRES:
-            size_rows = fetch_all(
-                f"SELECT DISTINCT brand, model FROM sneakers WHERE shop_id = {ph} AND size = {ph} AND quantity > 0",
-                (sid, size),
-            )
-        else:
-            size_rows = fetch_all(
-                f"SELECT DISTINCT brand, model FROM sneakers WHERE shop_id = {ph} AND size = {ph} AND quantity > 0",
-                (sid, size),
-            )
-        valid = {(r["brand"], r["model"]) for r in size_rows}
-        rows = [r for r in rows if (r["brand"], r["model"]) in valid]
+    if category:
+        rows = [r for r in rows if (r.get("category") or "").lower() == category.lower()]
+    if q:
+        words = [w for w in q.lower().split() if len(w) > 2]
+        if words:
+            matched = search_products_db(words, resolve_shop_id(shop_id), limit=200)
+            names = {m["name"] for m in matched}
+            rows = [r for r in rows if r["name"] in names]
 
     return {
-        "brands": brands,
+        "categories": categories,
         "count": len(rows),
         "items": rows,
     }
@@ -74,12 +61,20 @@ async def public_catalog(brand: str = "", size: float = 0):
 
 @router.get("/health")
 async def health():
+    from email_service import email_delivery_status
+
     db_status = get_database_status()
     redis_status = await get_redis_status()
+    email_status = email_delivery_status()
     return {
         "status": "ok",
         **db_status,
         **redis_status,
+        "email": {
+            "configured": email_status.get("configured"),
+            "production_ready": email_status.get("production_ready"),
+            "from": email_status.get("from_address"),
+        },
         "channels": {
             "telegram": bool(TELEGRAM_BOT_TOKEN),
             "whatsapp": bool(WHATSAPP_TOKEN),

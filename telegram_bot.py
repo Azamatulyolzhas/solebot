@@ -7,7 +7,7 @@ from aiogram.types import Message
 
 from ai import ask_ai
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_URL
-from shops import get_all_active_telegram_shops, get_shop_by_webhook_secret
+from shops import get_all_active_telegram_shops, get_shop_by_id, get_shop_by_webhook_secret
 
 log = logging.getLogger(__name__)
 
@@ -22,8 +22,8 @@ if tg_dp:
     @tg_dp.message(CommandStart())
     async def tg_start(msg: Message):
         await msg.answer(
-            "Привет! Я SoleBot — ваш консультант по кроссовкам. 👟\n"
-            "Спросите о любой модели — проверю наличие на складе!"
+            "Привет! Я AI-консультант магазина.\n"
+            "Спросите о любом товаре — проверю наличие и цену по каталогу."
         )
 
     @tg_dp.message()
@@ -38,7 +38,8 @@ async def register_shop_bot(shop: dict) -> None:
     try:
         secret = shop.get("tg_webhook_secret")
         token = shop.get("tg_token")
-        if not secret or not token:
+        shop_id = shop.get("id")
+        if not secret or not token or not shop_id:
             return
 
         bot = Bot(token=token)
@@ -46,39 +47,60 @@ async def register_shop_bot(shop: dict) -> None:
 
         @dp.message(CommandStart())
         async def shop_start(msg: Message):
+            fresh = get_shop_by_id(shop_id) or {}
+            bot_role = fresh.get("bot_role") or "консультант"
             await msg.answer(
-                f"Привет! Я бот магазина {shop.get('name')}. "
-                "Спросите о любой модели кроссовок — проверю наличие!"
+                f"Привет! Я {bot_role} магазина {fresh.get('name')}.\n"
+                "Спросите о товаре — проверю наличие и цену по каталогу."
             )
 
         @dp.message()
         async def shop_message(msg: Message):
-            from shops import is_subscription_active
-            if not is_subscription_active(shop["id"]):
+            from billing import check_message_quota, is_subscription_active, quota_exceeded_message
+
+            if not is_subscription_active(shop_id):
                 await msg.answer("⚠️ Подписка магазина истекла. Пожалуйста, обратитесь к владельцу.")
                 return
-            user_id = f"tg_{shop['id']}_{msg.from_user.id}"
+            allowed, used, limit = check_message_quota(shop_id)
+            if not allowed:
+                await msg.answer(f"⚠️ {quota_exceeded_message(used, limit)}")
+                return
+            user_id = f"tg_{shop_id}_{msg.from_user.id}"
             await msg.bot.send_chat_action(msg.chat.id, "typing")
-            reply = await ask_ai(user_id, msg.text or "", shop_id=shop["id"])
+            reply = await ask_ai(user_id, msg.text or "", shop_id=shop_id)
             await msg.answer(reply)
 
-        shop_bots[secret] = (bot, dp, shop)
+        fresh = get_shop_by_id(shop_id) or shop
+        shop_bots[secret] = (bot, dp, fresh)
 
         if TELEGRAM_WEBHOOK:
             webhook_url = TELEGRAM_WEBHOOK.rstrip("/") + f"/tg/{secret}/webhook"
             await bot.set_webhook(webhook_url, drop_pending_updates=True)
-            log.info(f"Telegram webhook установлен для {shop.get('name')}: {webhook_url}")
+            log.info(f"Telegram webhook установлен для {fresh.get('name')}: {webhook_url}")
     except Exception as e:
         log.error(f"Register shop bot failed for shop {shop.get('id')}: {e}")
 
 
 async def setup_shop_bots() -> None:
     try:
-        for shop in get_all_active_telegram_shops():
+        for stub in get_all_active_telegram_shops():
+            shop = get_shop_by_id(stub["id"]) or stub
             await register_shop_bot(shop)
         log.info(f"Registered {len(shop_bots)} shop Telegram bots")
     except Exception as e:
         log.error(f"Setup shop bots failed: {e}")
+
+
+async def unregister_shop_bot(shop_id: int) -> None:
+    """Remove shop bot from memory and delete Telegram webhook."""
+    secrets = [k for k, (_, _, s) in shop_bots.items() if s.get("id") == shop_id]
+    for secret in secrets:
+        bot, _, _ = shop_bots.pop(secret)
+        try:
+            await bot.delete_webhook()
+            await bot.session.close()
+        except Exception as e:
+            log.error(f"Unregister shop bot failed for shop {shop_id}: {e}")
 
 
 async def close_shop_bots() -> None:
@@ -117,12 +139,16 @@ async def process_default_update(data: dict) -> None:
 
 async def process_shop_update(webhook_secret: str, data: dict) -> dict:
     if webhook_secret not in shop_bots:
-        shop = get_shop_by_webhook_secret(webhook_secret)
-        if not shop:
+        stub = get_shop_by_webhook_secret(webhook_secret)
+        if not stub:
             raise KeyError("Shop not found")
+        shop = get_shop_by_id(stub["id"]) or stub
         await register_shop_bot(shop)
 
     bot, dp, shop = shop_bots[webhook_secret]
+    fresh = get_shop_by_id(shop["id"])
+    if fresh:
+        shop_bots[webhook_secret] = (bot, dp, fresh)
     update = types.Update.model_validate(data)
     await dp.feed_update(bot, update)
-    return shop
+    return fresh or shop

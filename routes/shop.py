@@ -12,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr
 
 from admin_service import count_shop_messages, count_shop_rows, list_recent_messages
+from db import db_placeholder, fetch_all
 from auth import create_shop_token, decode_shop_token, hash_password, verify_password
 from conversations import log_analytics_event
 from orders import ORDER_STATUSES, list_orders, update_order_status
@@ -34,8 +35,10 @@ from shops import (
     get_shop_by_id,
     get_shop_subscription_detail,
     get_valid_reset_token,
+    resolve_data_source,
     save_moysklad_token,
     save_shop_tg_token,
+    set_shop_data_source,
     set_shop_owner_password,
     update_shop_settings,
 )
@@ -67,6 +70,7 @@ class RegisterRequest(BaseModel):
     shop_name: str
     email: EmailStr
     password: str
+    accepted_terms: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -77,6 +81,12 @@ class LoginRequest(BaseModel):
 class SettingsUpdate(BaseModel):
     name: str | None = None
     groq_system_prompt: str | None = None
+    groq_api_key: str | None = None
+    clear_groq_api_key: bool = False
+    bot_role: str | None = None
+    business_type: str | None = None
+    website_url: str | None = None
+    owner_telegram_chat_id: str | None = None
 
 
 class PasswordChange(BaseModel):
@@ -103,6 +113,8 @@ async def shop_register(body: RegisterRequest):
             raise HTTPException(400, "Пароль должен быть не менее 8 символов")
         if len(body.shop_name.strip()) < 2:
             raise HTTPException(400, "Введите название магазина")
+        if not body.accepted_terms:
+            raise HTTPException(400, "Необходимо принять условия оферты и политику конфиденциальности")
         existing = get_shop_by_email(body.email)
         if existing:
             raise HTTPException(409, "Этот email уже зарегистрирован")
@@ -199,8 +211,15 @@ async def shop_me(shop: dict = Depends(get_current_shop)):
         "status": shop.get("status", "active"),
         "owner_email": shop["owner_email"],
         "groq_system_prompt": shop.get("groq_system_prompt") or "",
+        "bot_role": shop.get("bot_role") or "",
+        "business_type": shop.get("business_type") or "",
+        "website_url": shop.get("website_url") or "",
+        "data_source": resolve_data_source(shop),
         "has_tg_bot": bool(shop.get("tg_token")),
+        "owner_telegram_chat_id": shop.get("owner_telegram_chat_id") or "",
+        "has_order_notify": bool((shop.get("owner_telegram_chat_id") or "").strip()),
         "has_moysklad": bool(shop.get("moysklad_token")),
+        "has_own_groq_key": bool((shop.get("groq_api_key") or "").strip()),
         "sync_api_key": shop.get("sync_api_key") or None,
         "subscription": sub,
     }
@@ -234,30 +253,27 @@ async def analytics_overview(shop: dict = Depends(get_current_shop)):
                 GROUP BY day ORDER BY day
             """, (sid,))
 
-        top_brands = fetch_all(f"""
-            SELECT brand, COUNT(*) AS cnt
-            FROM sneakers WHERE shop_id = {ph} AND quantity > 0
-            GROUP BY brand ORDER BY cnt DESC LIMIT 8
+        top_categories = fetch_all(f"""
+            SELECT COALESCE(NULLIF(category, ''), 'Без категории') AS category, COUNT(*) AS cnt
+            FROM products WHERE shop_id = {ph} AND quantity > 0
+            GROUP BY category ORDER BY cnt DESC LIMIT 8
         """, (sid,))
 
-        # Unique users
         uniq = fetch_all(f"""
             SELECT COUNT(DISTINCT external_user_id) AS cnt
             FROM conversations WHERE shop_id = {ph}
         """, (sid,))
 
-        # Orders by status
         order_stats = fetch_all(f"""
             SELECT status, COUNT(*) AS cnt
             FROM orders WHERE shop_id = {ph}
             GROUP BY status
         """, (sid,))
 
-        # Top requested models (from messages containing brand/model names)
         top_models = fetch_all(f"""
-            SELECT brand || ' ' || model AS name, SUM(quantity) AS stock
-            FROM sneakers WHERE shop_id = {ph}
-            GROUP BY brand, model ORDER BY stock DESC LIMIT 8
+            SELECT name, SUM(quantity) AS stock
+            FROM products WHERE shop_id = {ph}
+            GROUP BY name ORDER BY stock DESC LIMIT 8
         """, (sid,))
 
     except Exception as e:
@@ -266,7 +282,8 @@ async def analytics_overview(shop: dict = Depends(get_current_shop)):
 
     return {
         "daily_messages": [{"day": str(r["day"]), "cnt": r["cnt"]} for r in daily],
-        "top_brands":     [{"brand": r["brand"], "cnt": r["cnt"]} for r in top_brands],
+        "top_categories": [{"category": r["category"], "cnt": r["cnt"]} for r in top_categories],
+        "top_brands":     [{"brand": r["category"], "cnt": r["cnt"]} for r in top_categories],
         "top_models":     [{"name": r["name"], "stock": r["stock"]} for r in top_models],
         "unique_users":   uniq[0]["cnt"] if uniq else 0,
         "order_stats":    {r["status"]: r["cnt"] for r in order_stats},
@@ -275,16 +292,19 @@ async def analytics_overview(shop: dict = Depends(get_current_shop)):
 
 @router.get("/stats")
 async def shop_stats(shop: dict = Depends(get_current_shop)):
+    from billing import subscription_usage
+
     sid = shop["id"]
     sub = get_shop_subscription_detail(sid)
+    usage = subscription_usage(sid)
     return {
         "shop_id": sid,
-        "sneakers": count_shop_rows("sneakers", sid),
+        "products": count_shop_rows("products", sid),
         "orders": count_shop_rows("orders", sid),
         "conversations": count_shop_rows("conversations", sid),
         "messages": count_shop_messages(sid),
         "analytics_events": count_shop_rows("analytics_events", sid),
-        "subscription": sub,
+        "subscription": {**(sub or {}), **usage},
     }
 
 
@@ -293,7 +313,7 @@ async def shop_products(limit: int = 100, offset: int = 0, shop: dict = Depends(
     sid = shop["id"]
     limit = max(1, min(limit, 500))
     return {
-        "count": count_shop_rows("sneakers", sid),
+        "count": count_shop_rows("products", sid),
         "limit": limit,
         "offset": offset,
         "items": list_products(limit=limit, offset=offset, shop_id=sid),
@@ -329,6 +349,7 @@ async def shop_import(file: UploadFile = File(...), replace: bool = False, shop:
     if not result["valid"]:
         raise HTTPException(400, "; ".join(result["errors"][:5]))
     imported = import_products(result["products"], replace=replace, shop_id=shop["id"])
+    set_shop_data_source(shop["id"], "csv")
     log_analytics_event("dashboard", "products_imported", {"imported": imported, "replace": replace}, shop_id=shop["id"])
     return {"ok": True, "imported": imported}
 
@@ -373,8 +394,23 @@ async def shop_messages(limit: int = 50, shop: dict = Depends(get_current_shop))
 
 @router.patch("/settings")
 async def shop_update_settings(body: SettingsUpdate, shop: dict = Depends(get_current_shop)):
-    update_shop_settings(shop["id"], name=body.name, groq_system_prompt=body.groq_system_prompt)
-    return {"ok": True}
+    update_shop_settings(
+        shop["id"],
+        name=body.name,
+        groq_system_prompt=body.groq_system_prompt,
+        groq_api_key=body.groq_api_key,
+        clear_groq_api_key=body.clear_groq_api_key,
+        bot_role=body.bot_role,
+        business_type=body.business_type,
+        website_url=body.website_url,
+        owner_telegram_chat_id=body.owner_telegram_chat_id,
+    )
+    updated = get_shop_by_id(shop["id"])
+    if updated and updated.get("tg_token") and updated.get("tg_webhook_secret"):
+        from telegram_bot import register_shop_bot
+
+        await register_shop_bot(updated)
+    return {"ok": True, "has_order_notify": bool((updated or {}).get("owner_telegram_chat_id"))}
 
 
 @router.post("/change-password")
@@ -390,10 +426,12 @@ async def shop_change_password(body: PasswordChange, shop: dict = Depends(get_cu
 
 @router.get("/subscription")
 async def shop_subscription(shop: dict = Depends(get_current_shop)):
+    from billing import subscription_usage
+
     sub = get_shop_subscription_detail(shop["id"])
     if not sub:
         raise HTTPException(404, "Подписка не найдена")
-    return sub
+    return {**sub, **subscription_usage(shop["id"])}
 
 
 @router.get("/payment-info")
@@ -417,11 +455,35 @@ class MoyskladTokenRequest(BaseModel):
 
 @router.post("/moysklad-connect")
 async def shop_moysklad_connect(body: MoyskladTokenRequest, shop: dict = Depends(get_current_shop)):
-    """Save МойСклад API token for the shop."""
+    """Save МойСклад API token and import full catalog."""
+    from moysklad import sync_moysklad_catalog
+
     if not body.token.strip():
         raise HTTPException(400, "Токен не может быть пустым")
-    save_moysklad_token(shop["id"], body.token.strip())
-    return {"ok": True}
+    token = body.token.strip()
+    save_moysklad_token(shop["id"], token)
+    set_shop_data_source(shop["id"], "moysklad")
+    result = await sync_moysklad_catalog(token, shop["id"], replace=True)
+    if result.get("error"):
+        raise HTTPException(502, result["error"])
+    if result["imported"] == 0:
+        raise HTTPException(502, "МойСклад не вернул товары для импорта")
+    return {"ok": True, "shop_id": shop["id"], "shop_name": shop["name"], **result}
+
+
+@router.post("/moysklad-sync")
+async def shop_moysklad_sync(replace: bool = False, shop: dict = Depends(get_current_shop)):
+    """Re-import catalog from МойСклад. replace=true removes products not in МойСклад."""
+    from moysklad import sync_moysklad_catalog
+
+    token = shop.get("moysklad_token")
+    if not token:
+        raise HTTPException(400, "МойСклад не подключён")
+    result = await sync_moysklad_catalog(token, shop["id"], replace=replace)
+    set_shop_data_source(shop["id"], "moysklad")
+    if result.get("error"):
+        raise HTTPException(502, result["error"])
+    return {"ok": True, "shop_id": shop["id"], "shop_name": shop["name"], **result}
 
 
 @router.delete("/moysklad-connect")
@@ -460,6 +522,16 @@ async def shop_bot_connect(body: BotConnectRequest, shop: dict = Depends(get_cur
     bot_info = r.json().get("result", {})
 
     webhook_secret = secrets.token_urlsafe(32)
+    ph = db_placeholder()
+    detached = fetch_all(
+        f"SELECT id, name FROM shops WHERE tg_token = {ph} AND id <> {ph}",
+        (token, shop["id"]),
+    )
+    from telegram_bot import register_shop_bot, unregister_shop_bot
+
+    for other in detached:
+        await unregister_shop_bot(other["id"])
+
     save_shop_tg_token(shop["id"], token, webhook_secret)
 
     webhook_url: str | None = None
@@ -471,8 +543,6 @@ async def shop_bot_connect(body: BotConnectRequest, shop: dict = Depends(get_cur
                 json={"url": webhook_url, "drop_pending_updates": True},
             )
 
-    # Register in memory
-    from telegram_bot import register_shop_bot
     updated_shop = get_shop_by_id(shop["id"])
     if updated_shop:
         await register_shop_bot(updated_shop)
@@ -481,6 +551,7 @@ async def shop_bot_connect(body: BotConnectRequest, shop: dict = Depends(get_cur
         "ok": True,
         "bot_username": bot_info.get("username"),
         "webhook_url": webhook_url,
+        "detached_from": [{"id": s["id"], "name": s["name"]} for s in detached],
     }
 
 

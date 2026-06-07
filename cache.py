@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 chat_sessions: dict[str, list] = {}
 memory_rate_limits: dict[str, tuple[int, int]] = {}
 order_states: dict[str, dict] = {}
+last_product_interest: dict[str, str] = {}
 redis_client = None
 
 
@@ -137,6 +138,35 @@ async def set_order_state(user_id: str, state: dict) -> None:
     except Exception as e:
         log.error(f"Set order state failed: {e}")
         order_states[user_id] = state
+
+
+async def get_last_product_interest(user_id: str) -> str | None:
+    try:
+        client = await get_redis()
+        if client is None:
+            return last_product_interest.get(user_id)
+
+        raw = await client.get(f"interest:{user_id}")
+        return raw if raw else None
+    except Exception as e:
+        log.error(f"Get last product interest failed: {e}")
+        return last_product_interest.get(user_id)
+
+
+async def set_last_product_interest(user_id: str, product: str) -> None:
+    product = (product or "").strip()
+    if not product:
+        return
+    try:
+        client = await get_redis()
+        if client is None:
+            last_product_interest[user_id] = product
+            return
+
+        await client.set(f"interest:{user_id}", product, ex=SESSION_TTL_SECONDS)
+    except Exception as e:
+        log.error(f"Set last product interest failed: {e}")
+        last_product_interest[user_id] = product
 
 
 async def clear_order_state(user_id: str) -> None:

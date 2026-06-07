@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SoleBot — Мой кабинет</title>
-  <link rel="stylesheet" href="/dashboard/static/styles.css?v=9">
+  <title>SaleBot — Мой кабинет</title>
+  <link rel="stylesheet" href="/dashboard/static/styles.css?v=10">
 </head>
 <body>
 
@@ -13,7 +13,7 @@
     <form id="login-form" class="login-card">
       <div class="login-logo">
         <span class="logo-mark">S</span>
-        <span>SoleBot</span>
+        <span>SaleBot</span>
       </div>
       <h2>Войти в кабинет</h2>
       <p class="muted">Управляйте своим магазином и ботом</p>
@@ -39,7 +39,7 @@
     <form id="forgot-form" class="login-card" method="post" action="javascript:void(0)">
       <div class="login-logo">
         <span class="logo-mark">S</span>
-        <span>SoleBot</span>
+        <span>SaleBot</span>
       </div>
       <h2>Восстановление пароля</h2>
       <p class="muted">Введите email — пришлём ссылку для сброса</p>
@@ -60,7 +60,7 @@
     <form id="reset-form" class="login-card" method="post" action="javascript:void(0)">
       <div class="login-logo">
         <span class="logo-mark">S</span>
-        <span>SoleBot</span>
+        <span>SaleBot</span>
       </div>
       <h2>Новый пароль</h2>
       <p class="muted">Придумайте надёжный пароль</p>
@@ -81,7 +81,7 @@
     <form id="register-form" class="login-card">
       <div class="login-logo">
         <span class="logo-mark">S</span>
-        <span>SoleBot</span>
+        <span>SaleBot</span>
       </div>
       <h2>Подать заявку</h2>
       <p class="muted">После проверки мы активируем ваш магазин</p>
@@ -93,6 +93,10 @@
       </label>
       <label>Пароль
         <input type="password" id="reg-password" placeholder="Минимум 8 символов" required autocomplete="new-password">
+      </label>
+      <label class="terms-check">
+        <input type="checkbox" id="reg-terms" required>
+        <span>Я принимаю <a href="/legal/offer" target="_blank" rel="noopener">оферту</a> и <a href="/legal/privacy" target="_blank" rel="noopener">политику конфиденциальности</a></span>
       </label>
       <button type="submit" class="btn-accent">Отправить заявку</button>
       <p id="register-error" class="error-msg hidden"></p>
@@ -171,7 +175,7 @@
             <div class="chart-wrap"><canvas id="chart-messages"></canvas></div>
           </div>
           <div class="panel chart-panel">
-            <div class="panel-head"><h2>Топ брендов в каталоге</h2></div>
+            <div class="panel-head"><h2>Топ категорий в каталоге</h2></div>
             <div class="chart-wrap"><canvas id="chart-brands"></canvas></div>
           </div>
         </div>
@@ -183,7 +187,7 @@
             <div class="chart-wrap"><canvas id="chart-orders"></canvas></div>
           </div>
           <div class="panel chart-panel">
-            <div class="panel-head"><h2>Остатки по моделям</h2></div>
+            <div class="panel-head"><h2>Остатки по товарам</h2></div>
             <div id="top-models-list" class="top-list"></div>
           </div>
         </div>
@@ -207,8 +211,8 @@
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>Бренд</th><th>Модель</th><th>Цвет</th><th>Размер</th>
-                <th>Кол-во</th><th>Цена ₸</th><th>Категория</th>
+                <th>Название</th><th>SKU</th><th>Категория</th>
+                <th>Остаток</th><th>Цена ₸</th>
               </tr></thead>
               <tbody id="catalog-body"></tbody>
             </table>
@@ -225,7 +229,7 @@
         <div class="panel mt">
           <div class="panel-head"><h2>Загрузка CSV</h2></div>
           <div class="panel-body">
-            <p class="muted small">Формат колонок: brand, model, colorway, size, quantity, price, category, gender</p>
+            <p class="muted small">Формат колонок: name, description, sku, category, price, quantity, attributes (JSON или size:42;color:белый)</p>
             <input type="file" id="csv-file" accept=".csv">
             <div class="btn-row">
               <button id="preview-btn" class="btn secondary">Предпросмотр</button>
@@ -301,6 +305,16 @@
                 <p id="tg-bot-username" class="muted small"></p>
               </div>
             </div>
+            <label class="form-label mt-sm">
+              Telegram ID для уведомлений о заказах
+              <input type="text" id="owner-tg-id-input" placeholder="123456789" inputmode="numeric" autocomplete="off">
+              <span class="muted small" id="tg-notify-hint">
+                Узнайте ID в <a href="https://t.me/userinfobot" target="_blank" rel="noopener">@userinfobot</a>, вставьте сюда и один раз нажмите <strong>/start</strong> у бота магазина.
+              </span>
+            </label>
+            <div class="btn-row">
+              <button id="save-notify-settings" class="btn secondary" type="button">Сохранить уведомления</button>
+            </div>
             <div class="btn-row mt-sm">
               <button id="tg-disconnect-btn" class="btn danger">Отключить бота</button>
             </div>
@@ -332,17 +346,25 @@
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               <div>
                 <strong>МойСклад подключён</strong>
-                <p class="muted small">При каждой продаже остатки синхронизируются автоматически</p>
+                <p class="muted small">Каталог загружается из МойСклад. При продаже остатки обновляются через вебхук.</p>
               </div>
             </div>
             <div class="btn-row mt-sm">
-              <button id="ms-disconnect-btn" class="btn danger">Отключить</button>
+              <button id="ms-sync-btn" class="btn secondary" type="button">Обновить остатки</button>
+              <button id="ms-replace-btn" class="btn" type="button">Только из МойСклад</button>
+              <button id="ms-disconnect-btn" class="btn danger" type="button">Отключить</button>
             </div>
+            <p class="muted small mt-sm">
+              Вебхук (автообновление): <code id="ms-webhook-url-connected" class="mono"></code><br>
+              Заголовок: <code>X-API-Key: <span id="ms-api-key-hint">ваш ключ синхронизации</span></code>
+            </p>
           </div>
           <div id="ms-connect-block" class="panel-body form-grid">
             <p class="muted small">
-              Вставьте токен МойСклад (Settings → Tokens). После подключения настройте вебхук в МойСклад
-              на URL <code id="ms-webhook-url" class="mono"></code>
+              Вставьте токен МойСклад (Настройки → Токены). Товары загрузятся в каталог
+              <strong>текущего магазина</strong> (см. название слева в меню). Бот видит только товары
+              того магазина, чей Telegram-бот подключён здесь. Вебхук:
+              <code id="ms-webhook-url" class="mono"></code>
             </p>
             <label class="form-label">
               Токен МойСклад
@@ -408,18 +430,47 @@
           </div>
         </div>
 
-        <!-- Промпт -->
+        <!-- Роль и промпт -->
         <div class="panel mt">
-          <div class="panel-head"><h2>Инструкция для ИИ (промпт)</h2></div>
+          <div class="panel-head">
+            <h2>Роль и промпт бота</h2>
+            <span id="data-source-badge" class="badge-info">Источник: manual</span>
+          </div>
           <div class="panel-body form-grid">
             <label class="form-label">
               Название магазина
-              <input type="text" id="shop-name-input" placeholder="Мой магазин кроссовок">
+              <input type="text" id="shop-name-input" placeholder="Мой магазин">
             </label>
             <label class="form-label">
-              Системный промпт
-              <textarea id="bot-prompt-input" rows="8" placeholder="Ты консультант магазина..."></textarea>
-              <span class="muted small">Опишите тон, стиль и правила бота. Оставьте пустым — используется стандартный промпт.</span>
+              Роль бота
+              <input type="text" id="bot-role-input" placeholder="Консультант мебельного магазина">
+              <span class="muted small">Например: продавец техники, консультант косметики, помощник в магазине одежды</span>
+            </label>
+            <label class="form-label">
+              Тип бизнеса
+              <select id="business-type-input">
+                <option value="">Не указан</option>
+                <option value="shoes">Обувь / одежда</option>
+                <option value="electronics">Техника</option>
+                <option value="furniture">Мебель</option>
+                <option value="cosmetics">Косметика</option>
+                <option value="other">Другое</option>
+              </select>
+            </label>
+            <label class="form-label">
+              Ссылка на сайт
+              <input type="url" id="website-url-input" placeholder="https://example.kz">
+              <span class="muted small">Сохраняется для будущего парсинга каталога (пока без автозагрузки)</span>
+            </label>
+            <label class="form-label">
+              Системный промпт (дополнительно)
+              <textarea id="bot-prompt-input" rows="6" placeholder="Дополнительные инструкции для ИИ..."></textarea>
+              <span class="muted small">Опишите тон и правила. Оставьте пустым — используется стандартный промпт с вашей ролью.</span>
+            </label>
+            <label class="form-label">
+              Groq API ключ (опционально)
+              <input type="password" id="groq-key-input" placeholder="gsk_... — свой ключ Groq" autocomplete="off">
+              <span class="muted small" id="groq-key-hint">Если не указан — используется ключ платформы. <button type="button" id="clear-groq-key-btn" class="link-btn hidden">Удалить свой ключ</button></span>
             </label>
             <div class="btn-row">
               <button id="save-bot-settings" class="btn">Сохранить</button>
@@ -496,6 +547,6 @@
 
   <div id="toast" class="toast hidden"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <script src="/dashboard/static/app.js?v=9"></script>
+  <script src="/dashboard/static/app.js?v=10"></script>
 </body>
 </html>

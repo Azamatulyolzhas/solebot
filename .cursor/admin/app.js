@@ -6,7 +6,6 @@ const TAB_TITLES = {
   messages:     ["Сообщения",  "История диалогов с клиентами"],
   applications: ["Заявки",     "Новые магазины ожидают активации"],
   shops:        ["Магазины",   "Все зарегистрированные магазины"],
-  email:        ["Email",      "Домен Resend — письма на любые адреса клиентов"],
 };
 
 const STAT_LABELS = {
@@ -690,123 +689,8 @@ document.getElementById("login-form").addEventListener("submit", async (event) =
 
 document.getElementById("logout-btn").addEventListener("click", logout);
 
-// ── Email (Resend) ─────────────────────────────────────────────────────────────
-
-function renderEmailStatus(data) {
-  const badge = document.getElementById("email-status-badge");
-  const hint = document.getElementById("email-hint");
-  const list = document.getElementById("email-domains-list");
-  if (!badge || !hint || !list) return;
-
-  if (!data.configured) {
-    badge.textContent = "Не настроен";
-    badge.className = "status-badge badge-pending";
-    hint.textContent = "Добавьте RESEND_API_KEY в Railway.";
-    list.innerHTML = "";
-    return;
-  }
-
-  if (data.production_ready) {
-    badge.textContent = "Production";
-    badge.className = "status-badge badge-active";
-  } else {
-    badge.textContent = "Sandbox";
-    badge.className = "status-badge badge-pending";
-  }
-
-  hint.textContent = `${data.hint} Отправитель: ${data.from_address}`;
-
-  const domains = data.domains || [];
-  if (!domains.length) {
-    list.innerHTML = `<p class="muted small">Доменов нет — добавьте ниже.</p>`;
-    return;
-  }
-
-  list.innerHTML = `
-    <table class="compact-table"><thead><tr><th>Домен</th><th>Статус</th><th></th></tr></thead>
-    <tbody>${domains.map((d) => `
-      <tr>
-        <td>${escapeHtml(d.name)}</td>
-        <td>${escapeHtml(d.status)}</td>
-        <td><button type="button" class="btn secondary small email-verify-btn" data-id="${escapeHtml(d.id)}">Проверить DNS</button></td>
-      </tr>`).join("")}
-    </tbody></table>`;
-
-  list.querySelectorAll(".email-verify-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      try {
-        await api(`/admin/email/verify/${btn.dataset.id}`, { method: "POST" });
-        showToast("Проверка DNS запущена", "success");
-        await loadEmail();
-      } catch (err) {
-        showToast(err.message, "error");
-      }
-    });
-  });
-}
-
-function renderDnsRecords(records) {
-  const box = document.getElementById("email-dns-records");
-  if (!box) return;
-  if (!records?.length) {
-    box.classList.add("hidden");
-    return;
-  }
-  box.classList.remove("hidden");
-  box.innerHTML = `
-    <h3>DNS-записи (добавьте у регистратора домена)</h3>
-    <table class="compact-table"><thead><tr><th>Тип</th><th>Имя</th><th>Значение</th></tr></thead>
-    <tbody>${records.map((r) => `
-      <tr>
-        <td>${escapeHtml(r.type)}</td>
-        <td><code>${escapeHtml(r.name)}</code></td>
-        <td><code>${escapeHtml(r.value)}</code></td>
-      </tr>`).join("")}
-    </tbody></table>`;
-}
-
-async function loadEmail() {
-  const data = await api("/admin/email");
-  renderEmailStatus(data);
-}
-
-document.getElementById("email-add-domain-btn")?.addEventListener("click", async () => {
-  const domain = document.getElementById("email-domain-input")?.value.trim();
-  const msg = document.getElementById("email-action-msg");
-  if (!domain) {
-    showToast("Введите домен", "error");
-    return;
-  }
-  try {
-    const res = await api("/admin/email/domain", { method: "POST", json: { domain } });
-    renderDnsRecords(res.records);
-    if (msg) msg.textContent = `Домен ${res.domain?.name} добавлен. Пропишите DNS и нажмите «Проверить DNS».`;
-    showToast("Домен добавлен — настройте DNS", "success");
-    await loadEmail();
-  } catch (err) {
-    showToast(err.message, "error");
-  }
-});
-
-document.getElementById("email-test-btn")?.addEventListener("click", async () => {
-  const to = document.getElementById("email-test-input")?.value.trim();
-  if (!to) {
-    showToast("Введите email для теста", "error");
-    return;
-  }
-  try {
-    const res = await api("/admin/email/test", { method: "POST", json: { to } });
-    showToast(`Тест отправлен на ${res.to}`, "success");
-  } catch (err) {
-    showToast(err.message, "error");
-  }
-});
-
 document.querySelectorAll(".nav-item").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    switchTab(btn.dataset.tab);
-    if (btn.dataset.tab === "email") loadEmail().catch((e) => showToast(e.message, "error"));
-  });
+  btn.addEventListener("click", () => switchTab(btn.dataset.tab));
 });
 
 document.getElementById("refresh-btn").addEventListener("click", loadAll);

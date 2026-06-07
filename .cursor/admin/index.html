@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SaleBot Admin</title>
-  <link rel="stylesheet" href="/admin/static/styles.css?v=8">
+  <link rel="stylesheet" href="/admin/static/styles.css?v=7">
 </head>
 <body>
   <div id="login-screen" class="login-screen hidden">
@@ -39,7 +39,6 @@
         <button class="nav-item" data-tab="messages">Сообщения</button>
         <button class="nav-item" data-tab="applications">Заявки <span id="apps-badge" class="apps-badge hidden"></span></button>
         <button class="nav-item" data-tab="shops">Магазины</button>
-        <button class="nav-item" data-tab="email">Email</button>
       </nav>
       <div class="sidebar-foot">
         <span id="db-badge" class="badge">—</span>
@@ -210,38 +209,6 @@
           </div>
         </div>
       </section>
-
-      <!-- EMAIL -->
-      <section id="tab-email" class="tab">
-        <div class="panel">
-          <div class="panel-head">
-            <h2>Email (Resend)</h2>
-            <span id="email-status-badge" class="status-badge badge-pending">—</span>
-          </div>
-          <div class="panel-body form-grid">
-            <p id="email-hint" class="muted"></p>
-            <div id="email-domains-list"></div>
-            <label class="form-label">
-              Добавить домен для отправки
-              <input type="text" id="email-domain-input" placeholder="mail.example.kz или example.kz" autocomplete="off">
-              <span class="muted small">Нужен домен, которым вы владеете. DNS-записи добавьте у регистратора.</span>
-            </label>
-            <div class="btn-row">
-              <button type="button" id="email-add-domain-btn" class="btn">Добавить домен</button>
-            </div>
-            <div id="email-dns-records" class="hidden"></div>
-            <hr>
-            <label class="form-label">
-              Тестовое письмо
-              <input type="email" id="email-test-input" placeholder="client@example.com">
-            </label>
-            <div class="btn-row">
-              <button type="button" id="email-test-btn" class="btn secondary">Отправить тест</button>
-            </div>
-            <p id="email-action-msg" class="muted small"></p>
-          </div>
-        </div>
-      </section>
     </main>
   </div>
 
@@ -289,6 +256,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/admin/static/app.js?v=8"></script>
+  <script src="/admin/static/app.js?v=6"></script>
 </body>
 </html>

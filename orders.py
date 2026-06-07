@@ -1,14 +1,29 @@
 import logging
 import re
 
-from cache import clear_order_state, get_order_state, set_order_state
+from cache import (
+    clear_order_state,
+    get_last_product_interest,
+    get_order_state,
+    set_order_state,
+)
 from config import USE_POSTGRES
 from conversations import split_user_id
 from db import db_placeholder, execute_write, fetch_all, fetch_one_value
-from notifications import notify_manager
+from notifications import notify_shop_owner
 from shops import resolve_shop_id
 
 log = logging.getLogger(__name__)
+
+ORDER_TRIGGERS = (
+    "хочу купить", "купить", "заказать", "оформить",
+    "беру", "возьму", "оплатить", "заказ",
+)
+
+GENERIC_ORDER_PHRASES = {
+    "хочу купить", "купить", "заказать", "оформить",
+    "беру", "возьму", "оплатить", "заказ", "давай",
+}
 
 
 def create_order(
@@ -86,17 +101,35 @@ def update_order_status(order_id: int, status: str, shop_id: int | None = None) 
 
 
 def looks_like_order_request(message: str) -> bool:
-    text = message.lower()
-    triggers = [
-        "хочу купить", "купить", "заказать", "оформить",
-        "беру", "возьму", "оплатить", "заказ",
-    ]
-    return any(trigger in text for trigger in triggers)
+    text = message.lower().strip()
+    return any(trigger in text for trigger in ORDER_TRIGGERS)
 
 
 def looks_like_phone(message: str) -> bool:
     digits = re.sub(r"\D", "", message)
     return 10 <= len(digits) <= 15
+
+
+def _normalize_product_interest(message: str) -> str:
+    text = message.strip()
+    lowered = text.lower().rstrip(".!")
+    if lowered in GENERIC_ORDER_PHRASES:
+        return ""
+    for phrase in GENERIC_ORDER_PHRASES:
+        if lowered == phrase or lowered.startswith(phrase + " "):
+            rest = text[len(phrase):].strip(" .,!-—")
+            if rest and rest.lower() not in GENERIC_ORDER_PHRASES:
+                return rest
+            return ""
+    return text
+
+
+async def _resolve_product_interest(user_id: str, user_message: str) -> str:
+    explicit = _normalize_product_interest(user_message)
+    if explicit:
+        return explicit
+    last = await get_last_product_interest(user_id)
+    return last or user_message.strip()
 
 
 async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None = None) -> str | None:
@@ -108,9 +141,10 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
             if not looks_like_order_request(user_message):
                 return None
 
+            product_interest = await _resolve_product_interest(user_id, user_message)
             await set_order_state(user_id, {
                 "step": "name",
-                "product_interest": user_message.strip(),
+                "product_interest": product_interest,
             })
             return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
 
@@ -139,7 +173,7 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
                 state.get("product_interest", ""),
                 shop_id,
             )
-            await notify_manager(order_id, state, channel, external_user_id)
+            await notify_shop_owner(order_id, state, channel, external_user_id, shop_id)
             await clear_order_state(user_id)
             return "Заказ принят. Менеджер скоро свяжется с вами для подтверждения."
 

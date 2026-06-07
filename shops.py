@@ -1,4 +1,5 @@
 import logging
+import re
 
 from config import DEFAULT_SHOP_NAME, DEFAULT_SHOP_SLUG, USE_POSTGRES
 from db import db_placeholder, execute_write, fetch_all, fetch_one_value
@@ -31,7 +32,7 @@ def ensure_default_shop_data() -> None:
     try:
         shop_id = get_default_shop_id()
         ph = db_placeholder()
-        execute_write(f"UPDATE sneakers SET shop_id = {ph} WHERE shop_id IS NULL", (shop_id,))
+        execute_write(f"UPDATE products SET shop_id = {ph} WHERE shop_id IS NULL", (shop_id,))
         execute_write(f"UPDATE orders SET shop_id = {ph} WHERE shop_id IS NULL", (shop_id,))
         execute_write(f"UPDATE conversations SET shop_id = {ph} WHERE shop_id IS NULL", (shop_id,))
 
@@ -46,8 +47,8 @@ def ensure_default_shop_data() -> None:
             execute_write(
                 f"""
                 INSERT INTO subscriptions
-                    (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at)
-                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, NOW() + INTERVAL '30 days')
+                    (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at, period_starts_at)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, NOW() + INTERVAL '30 days', NOW())
                 """,
                 (shop_id, "trial", "active", 500, 3),
             )
@@ -55,8 +56,8 @@ def ensure_default_shop_data() -> None:
             execute_write(
                 f"""
                 INSERT INTO subscriptions
-                    (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at)
-                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, datetime('now', '+30 days'))
+                    (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at, period_starts_at)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, datetime('now', '+30 days'), datetime('now'))
                 """,
                 (shop_id, "trial", "active", 500, 3),
             )
@@ -67,9 +68,10 @@ def ensure_default_shop_data() -> None:
 def resolve_shop_id(shop_id: int | None = None) -> int:
     return shop_id if shop_id is not None else get_default_shop_id()
 
-def list_shops() -> list[dict]:
+def list_shops(include_deleted: bool = False) -> list[dict]:
     try:
-        return fetch_all("""
+        where = "" if include_deleted else "WHERE s.status <> 'deleted'"
+        return fetch_all(f"""
             SELECT s.id, s.name, s.slug, s.owner_email, s.status, s.created_at,
                    s.tg_webhook_secret,
                    CASE WHEN s.tg_token IS NULL OR s.tg_token = '' THEN false ELSE true END AS has_tg_token,
@@ -81,6 +83,7 @@ def list_shops() -> list[dict]:
                    sub.period_ends_at
             FROM shops s
             LEFT JOIN subscriptions sub ON sub.shop_id = s.id
+            {where}
             ORDER BY s.id DESC
         """)
     except Exception as e:
@@ -135,6 +138,8 @@ def update_shop_status(shop_id: int, status: str) -> bool:
     """Approve or reject a shop (set status to 'active' or 'rejected')."""
     ph = db_placeholder()
     try:
+        if status == "deleted":
+            clear_shop_tg_token(shop_id)
         execute_write(f"UPDATE shops SET status = {ph} WHERE id = {ph}", (status, shop_id))
         if status == "active":
             existing_sub = fetch_one_value(
@@ -144,16 +149,18 @@ def update_shop_status(shop_id: int, status: str) -> bool:
                 if USE_POSTGRES:
                     execute_write(
                         f"""
-                        INSERT INTO subscriptions (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at)
-                        VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, NOW() + INTERVAL '30 days')
+                        INSERT INTO subscriptions
+                            (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at, period_starts_at)
+                        VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, NOW() + INTERVAL '30 days', NOW())
                         """,
                         (shop_id, "trial", "active", 500, 1),
                     )
                 else:
                     execute_write(
                         f"""
-                        INSERT INTO subscriptions (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at)
-                        VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, datetime('now', '+30 days'))
+                        INSERT INTO subscriptions
+                            (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at, period_starts_at)
+                        VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, datetime('now', '+30 days'), datetime('now'))
                         """,
                         (shop_id, "trial", "active", 500, 1),
                     )
@@ -175,7 +182,11 @@ def get_shop_by_id(shop_id: int) -> dict | None:
     try:
         ph = db_placeholder()
         rows = fetch_all(
-            f"SELECT id, name, slug, owner_email, status, tg_token, tg_webhook_secret, groq_system_prompt, moysklad_token, sync_api_key, created_at FROM shops WHERE id = {ph} LIMIT 1",
+            f"""SELECT id, name, slug, owner_email, status, tg_token, tg_webhook_secret,
+                       owner_telegram_chat_id, owner_telegram_username, groq_system_prompt,
+                       groq_api_key, moysklad_token, sync_api_key, bot_role, business_type,
+                       website_url, data_source, created_at
+                FROM shops WHERE id = {ph} LIMIT 1""",
             (shop_id,),
         )
         return rows[0] if rows else None
@@ -184,12 +195,20 @@ def get_shop_by_id(shop_id: int) -> dict | None:
         return None
 
 
+def get_shop_owner_email(shop_id: int) -> str | None:
+    """Registration email — all owner notifications go here."""
+    shop = get_shop_by_id(shop_id)
+    email = (shop or {}).get("owner_email") or ""
+    return email.strip() or None
+
+
 def get_shop_by_email(email: str) -> dict | None:
     """Return shop row including password hash for authentication."""
     try:
         ph = db_placeholder()
         rows = fetch_all(
-            f"SELECT id, name, slug, owner_email, owner_password_hash, status, groq_system_prompt FROM shops WHERE LOWER(owner_email) = LOWER({ph}) LIMIT 1",
+            f"""SELECT id, name, slug, owner_email, owner_password_hash, status, groq_system_prompt
+                FROM shops WHERE LOWER(owner_email) = LOWER({ph}) AND status <> 'deleted' LIMIT 1""",
             (email,),
         )
         return rows[0] if rows else None
@@ -198,21 +217,95 @@ def get_shop_by_email(email: str) -> dict | None:
         return None
 
 
-def update_shop_settings(shop_id: int, name: str | None = None, groq_system_prompt: str | None = None) -> bool:
+def parse_telegram_chat_id(value: str | None) -> str | None:
+    """Numeric Telegram user id from dashboard (e.g. from @userinfobot)."""
+    if value is None:
+        return None
+    digits = re.sub(r"\D", "", value.strip())
+    return digits or None
+
+
+def refresh_shop_bot_cache(shop_id: int) -> None:
+    try:
+        from telegram_bot import shop_bots
+
+        fresh = get_shop_by_id(shop_id)
+        if not fresh:
+            return
+        secret = fresh.get("tg_webhook_secret")
+        if secret and secret in shop_bots:
+            bot, dp, _ = shop_bots[secret]
+            shop_bots[secret] = (bot, dp, fresh)
+    except Exception:
+        log.exception("Refresh shop bot cache failed for shop %s", shop_id)
+
+
+def update_shop_settings(
+    shop_id: int,
+    name: str | None = None,
+    groq_system_prompt: str | None = None,
+    groq_api_key: str | None = None,
+    bot_role: str | None = None,
+    business_type: str | None = None,
+    website_url: str | None = None,
+    owner_telegram_chat_id: str | None = None,
+    data_source: str | None = None,
+    *,
+    clear_groq_api_key: bool = False,
+) -> bool:
     sets = []
     params: list = []
     ph = db_placeholder()
+    if owner_telegram_chat_id is not None:
+        chat_id = parse_telegram_chat_id(owner_telegram_chat_id)
+        sets.append(f"owner_telegram_chat_id = {ph}")
+        params.append(chat_id)
+        sets.append("owner_telegram_username = NULL")
     if name is not None:
         sets.append(f"name = {ph}")
         params.append(name)
     if groq_system_prompt is not None:
         sets.append(f"groq_system_prompt = {ph}")
         params.append(groq_system_prompt)
+    if clear_groq_api_key:
+        sets.append("groq_api_key = NULL")
+    elif groq_api_key is not None:
+        sets.append(f"groq_api_key = {ph}")
+        params.append(groq_api_key.strip() or None)
+    if bot_role is not None:
+        sets.append(f"bot_role = {ph}")
+        params.append(bot_role)
+    if business_type is not None:
+        sets.append(f"business_type = {ph}")
+        params.append(business_type)
+    if website_url is not None:
+        sets.append(f"website_url = {ph}")
+        params.append(website_url)
+    if data_source is not None:
+        sets.append(f"data_source = {ph}")
+        params.append(data_source)
     if not sets:
         return False
     params.append(shop_id)
     execute_write(f"UPDATE shops SET {', '.join(sets)} WHERE id = {ph}", params)
+    if owner_telegram_chat_id is not None:
+        refresh_shop_bot_cache(shop_id)
     return True
+
+
+def set_shop_data_source(shop_id: int, source: str) -> None:
+    update_shop_settings(shop_id, data_source=source)
+
+
+def resolve_data_source(shop: dict) -> str:
+    stored = (shop or {}).get("data_source") or ""
+    if stored and stored != "manual":
+        return stored
+    if shop.get("moysklad_token"):
+        return "moysklad"
+    if shop.get("sync_api_key"):
+        return "api"
+    return stored or "manual"
 
 
 def set_shop_owner_password(shop_id: int, password_hash: str) -> None:
@@ -221,8 +314,19 @@ def set_shop_owner_password(shop_id: int, password_hash: str) -> None:
 
 
 def save_shop_tg_token(shop_id: int, tg_token: str, webhook_secret: str) -> None:
-    """Save Telegram bot token and webhook secret for a shop."""
+    """Save Telegram bot token and webhook secret for a shop.
+
+    One Telegram bot can only belong to one shop — detach it from others first.
+    """
     ph = db_placeholder()
+    execute_write(
+        f"""
+        UPDATE shops SET tg_token = NULL, tg_webhook_secret = NULL
+        WHERE tg_token = {ph} AND id <> {ph}
+        """,
+        (tg_token, shop_id),
+        fetch_one=False,
+    )
     execute_write(
         f"UPDATE shops SET tg_token = {ph}, tg_webhook_secret = {ph} WHERE id = {ph}",
         (tg_token, webhook_secret, shop_id),
@@ -269,7 +373,8 @@ def extend_shop_subscription(shop_id: int, plan: str, days: int, messages_limit:
                     f"""
                     UPDATE subscriptions
                     SET plan = {ph}, status = {ph}, messages_limit = {ph},
-                        period_ends_at = NOW() + INTERVAL '{days} days'
+                        period_ends_at = NOW() + INTERVAL '{days} days',
+                        period_starts_at = NOW(), trial_ends_at = NULL
                     WHERE shop_id = {ph}
                     """,
                     (plan, "active", messages_limit, shop_id),
@@ -279,7 +384,8 @@ def extend_shop_subscription(shop_id: int, plan: str, days: int, messages_limit:
                     f"""
                     UPDATE subscriptions
                     SET plan = {ph}, status = {ph}, messages_limit = {ph},
-                        period_ends_at = datetime('now', '+{days} days')
+                        period_ends_at = datetime('now', '+{days} days'),
+                        period_starts_at = datetime('now'), trial_ends_at = NULL
                     WHERE shop_id = {ph}
                     """,
                     (plan, "active", messages_limit, shop_id),
@@ -288,16 +394,18 @@ def extend_shop_subscription(shop_id: int, plan: str, days: int, messages_limit:
             if USE_POSTGRES:
                 execute_write(
                     f"""
-                    INSERT INTO subscriptions (shop_id, plan, status, messages_limit, channels_limit, period_ends_at)
-                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, NOW() + INTERVAL '{days} days')
+                    INSERT INTO subscriptions
+                        (shop_id, plan, status, messages_limit, channels_limit, period_ends_at, period_starts_at)
+                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, NOW() + INTERVAL '{days} days', NOW())
                     """,
                     (shop_id, plan, "active", messages_limit, 3),
                 )
             else:
                 execute_write(
                     f"""
-                    INSERT INTO subscriptions (shop_id, plan, status, messages_limit, channels_limit, period_ends_at)
-                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, datetime('now', '+{days} days'))
+                    INSERT INTO subscriptions
+                        (shop_id, plan, status, messages_limit, channels_limit, period_ends_at, period_starts_at)
+                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, datetime('now', '+{days} days'), datetime('now'))
                     """,
                     (shop_id, plan, "active", messages_limit, 3),
                 )
@@ -305,42 +413,6 @@ def extend_shop_subscription(shop_id: int, plan: str, days: int, messages_limit:
     except Exception as e:
         log.error(f"Extend subscription failed: {e}")
         return False
-
-
-def is_subscription_active(shop_id: int) -> bool:
-    """Check if shop has an active subscription (trial or paid, not expired)."""
-    try:
-        ph = db_placeholder()
-        if USE_POSTGRES:
-            rows = fetch_all(
-                f"""
-                SELECT id FROM subscriptions
-                WHERE shop_id = {ph} AND status = 'active'
-                  AND (
-                    (trial_ends_at IS NOT NULL AND trial_ends_at > NOW()) OR
-                    (period_ends_at IS NOT NULL AND period_ends_at > NOW())
-                  )
-                LIMIT 1
-                """,
-                (shop_id,),
-            )
-        else:
-            rows = fetch_all(
-                f"""
-                SELECT id FROM subscriptions
-                WHERE shop_id = {ph} AND status = 'active'
-                  AND (
-                    (trial_ends_at IS NOT NULL AND trial_ends_at > datetime('now')) OR
-                    (period_ends_at IS NOT NULL AND period_ends_at > datetime('now'))
-                  )
-                LIMIT 1
-                """,
-                (shop_id,),
-            )
-        return bool(rows)
-    except Exception as e:
-        log.error(f"Check subscription failed: {e}")
-        return True  # fail open — don't block bot on DB error
 
 
 def get_shop_by_sync_api_key(api_key: str) -> dict | None:
@@ -367,8 +439,13 @@ def generate_sync_api_key(shop_id: int) -> str:
 
 
 def save_moysklad_token(shop_id: int, token: str) -> None:
+    from moysklad import normalize_moysklad_token
+
     ph = db_placeholder()
-    execute_write(f"UPDATE shops SET moysklad_token = {ph} WHERE id = {ph}", (token, shop_id))
+    execute_write(
+        f"UPDATE shops SET moysklad_token = {ph} WHERE id = {ph}",
+        (normalize_moysklad_token(token), shop_id),
+    )
 
 
 def clear_moysklad_token(shop_id: int) -> None:
@@ -436,6 +513,52 @@ def consume_reset_token(token_id: int) -> None:
     """Mark token as used so it can't be reused."""
     ph = db_placeholder()
     execute_write(f"UPDATE password_reset_tokens SET used = TRUE WHERE id = {ph}", (token_id,))
+
+
+class ShopDeleteError(Exception):
+    pass
+
+
+def delete_shop(shop_id: int, hard: bool = False) -> bool:
+    """Soft-delete (status=deleted, disconnect bot) or hard-delete all shop data."""
+    from config import DEFAULT_SHOP_SLUG
+    from db import get_db
+
+    shop = get_shop_by_id(shop_id)
+    if not shop:
+        return False
+    if shop.get("slug") == DEFAULT_SHOP_SLUG:
+        raise ShopDeleteError("Нельзя удалить магазин по умолчанию")
+
+    ph = db_placeholder()
+    if not hard:
+        clear_shop_tg_token(shop_id)
+        execute_write(f"UPDATE shops SET status = 'deleted' WHERE id = {ph}", (shop_id,))
+        return True
+
+    conn = get_db()
+    try:
+        conn.execute(
+            f"""
+            DELETE FROM messages
+            WHERE conversation_id IN (SELECT id FROM conversations WHERE shop_id = {ph})
+            """,
+            (shop_id,),
+        )
+        for table in (
+            "conversations",
+            "analytics_events",
+            "orders",
+            "products",
+            "password_reset_tokens",
+            "subscriptions",
+        ):
+            conn.execute(f"DELETE FROM {table} WHERE shop_id = {ph}", (shop_id,))
+        conn.execute(f"DELETE FROM shops WHERE id = {ph}", (shop_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
 
 
 def get_shop_by_webhook_secret(secret: str) -> dict | None:

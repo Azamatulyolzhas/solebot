@@ -1,39 +1,5 @@
 """
 CommerceML 2.x parser (used by 1С:Розница, 1С:УТ, 1С:Комплексная).
-
-Typical export flow in 1С:
-  1. Файл → Обмен данными → Выгрузить данные в формате CommerceML
-  2. Upload the resulting .xml file to POST /sync/1c
-
-CommerceML structure we handle:
-  <КоммерческаяИнформация>
-    <Каталог>
-      <Товары>
-        <Товар>
-          <Ид>uuid</Ид>
-          <Наименование>Nike Air Force 1 белый</Наименование>
-          <Артикул>NK-AF1-WHT-42</Артикул>
-          <ЗначенияРеквизитов>
-            <ЗначениеРеквизита>
-              <Наименование>Размер</Наименование>
-              <Значение>42</Значение>
-            </ЗначениеРеквизита>
-          </ЗначенияРеквизитов>
-        </Товар>
-      </Товары>
-    </Каталог>
-    <ПакетПредложений>
-      <Предложения>
-        <Предложение>
-          <Ид>uuid</Ид>
-          <Количество>5</Количество>
-          <Цены>
-            <Цена><ЦенаЗаЕдиницу>25000</ЦенаЗаЕдиницу></Цена>
-          </Цены>
-        </Предложение>
-      </Предложения>
-    </ПакетПредложений>
-  </КоммерческаяИнформация>
 """
 import re
 import logging
@@ -41,23 +7,12 @@ from xml.etree import ElementTree as ET
 
 log = logging.getLogger(__name__)
 
-# Well-known brands (sorted by length desc to catch "New Balance" before "Balance")
-KNOWN_BRANDS = sorted([
-    "New Balance", "Nike", "Adidas", "Jordan", "Puma", "Reebok",
-    "Converse", "Vans", "Asics", "Saucony", "Brooks", "Hoka",
-    "Salomon", "Timberland", "Under Armour", "Balenciaga", "Gucci",
-    "Louis Vuitton", "Alexander McQueen", "Dior", "Off-White",
-    "Yeezy", "Air Jordan",
-], key=len, reverse=True)
-
 
 def _ns(tag: str) -> str:
-    """Strip namespace prefix if present."""
     return tag.split("}")[-1] if "}" in tag else tag
 
 
 def _find(el: ET.Element, *paths: str) -> str:
-    """Find text in nested tags, trying each path."""
     for path in paths:
         parts = path.split("/")
         cur = el
@@ -70,19 +25,7 @@ def _find(el: ET.Element, *paths: str) -> str:
     return ""
 
 
-def _parse_brand_model(name: str) -> tuple[str, str]:
-    """Split a product name into (brand, model) by matching known brands."""
-    for brand in KNOWN_BRANDS:
-        if name.lower().startswith(brand.lower()):
-            model = name[len(brand):].strip(" -–—")
-            return brand, model or name
-    # Fallback: first word as brand
-    parts = name.split(None, 1)
-    return parts[0], parts[1] if len(parts) > 1 else name
-
-
 def _parse_size(text: str) -> float | None:
-    """Extract numeric size from a string like '42', '42.5', 'EU 42'."""
     m = re.search(r"\b(\d{2}(?:[.,]\d)?)\b", text)
     if m:
         return float(m.group(1).replace(",", "."))
@@ -91,19 +34,17 @@ def _parse_size(text: str) -> float | None:
 
 def parse_commerceml(xml_bytes: bytes) -> list[dict]:
     """
-    Parse a CommerceML XML file and return a list of product dicts
-    compatible with import_products().
+    Parse CommerceML XML into universal product dicts for import_products().
 
     Returns list of:
-        {brand, model, colorway, size, quantity, price, category, gender}
+        {name, description, sku, category, price, quantity, attributes}
     """
     try:
         root = ET.fromstring(xml_bytes)
     except ET.ParseError as exc:
         raise ValueError(f"Invalid XML: {exc}") from exc
 
-    # ── Collect products from <Каталог> ───────────────────────────────────────
-    products: dict[str, dict] = {}   # id → product dict
+    products: dict[str, dict] = {}
 
     catalog = next((c for c in root if _ns(c.tag) == "Каталог"), None)
     if catalog is not None:
@@ -119,38 +60,43 @@ def parse_commerceml(xml_bytes: bytes) -> list[dict]:
                 if not uid or not name:
                     continue
 
-                brand, model = _parse_brand_model(name)
-
-                # Try to find size in реквизиты
-                size_val: float | None = None
+                attrs: dict = {}
                 реквизиты = next((c for c in товар if _ns(c.tag) == "ЗначенияРеквизитов"), None)
                 if реквизиты is not None:
                     for req in реквизиты:
-                        req_name = _find(req, "Наименование").lower()
-                        if "размер" in req_name or "size" in req_name:
-                            size_val = _parse_size(_find(req, "Значение"))
-                            break
+                        req_name = _find(req, "Наименование").strip()
+                        req_val = _find(req, "Значение").strip()
+                        if not req_name or not req_val:
+                            continue
+                        key = req_name.lower()
+                        if "размер" in key or key == "size":
+                            size_val = _parse_size(req_val)
+                            if size_val is not None:
+                                attrs["size"] = size_val
+                        elif "цвет" in key or key == "color":
+                            attrs["color"] = req_val
+                        else:
+                            attrs[req_name] = req_val
 
-                # Fall back: try to parse size from article or name
-                if size_val is None and article:
+                if "size" not in attrs and article:
                     size_val = _parse_size(article)
-                if size_val is None:
-                    # Look for typical size patterns at the end of the name
-                    size_val = _parse_size(name[-6:]) if len(name) > 6 else None
+                    if size_val is not None:
+                        attrs["size"] = size_val
+                if "size" not in attrs and len(name) > 6:
+                    size_val = _parse_size(name[-6:])
+                    if size_val is not None:
+                        attrs["size"] = size_val
 
                 products[uid] = {
-                    "brand":    brand,
-                    "model":    model,
-                    "colorway": "",
-                    "size":     size_val or 0.0,
+                    "name": name,
+                    "description": None,
+                    "sku": article or None,
+                    "category": None,
                     "quantity": 0,
-                    "price":    0,
-                    "category": "lifestyle",
-                    "gender":   "unisex",
-                    "_article": article,
+                    "price": 0,
+                    "attributes": attrs,
                 }
 
-    # ── Overlay quantities/prices from <ПакетПредложений> ────────────────────
     пакет = next((c for c in root if _ns(c.tag) == "ПакетПредложений"), None)
     if пакет is not None:
         предложения = next((c for c in пакет if _ns(c.tag) == "Предложения"), None)
@@ -158,7 +104,6 @@ def parse_commerceml(xml_bytes: bytes) -> list[dict]:
             for п in предложения:
                 if _ns(п.tag) != "Предложение":
                     continue
-                # Ид may be "uuid#variant" — take only uuid part
                 uid_raw = _find(п, "Ид")
                 uid = uid_raw.split("#")[0]
 
@@ -183,15 +128,10 @@ def parse_commerceml(xml_bytes: bytes) -> list[dict]:
                     products[uid]["quantity"] = qty
                     if price:
                         products[uid]["price"] = price
-                else:
-                    # Предложение without a matching Товар — skip or create minimal
-                    log.debug("CommerceML: предложение %s has no matching товар", uid_raw)
 
     result = [
-        {k: v for k, v in p.items() if not k.startswith("_")}
-        for p in products.values()
-        if p.get("size", 0) > 0  # skip items where size couldn't be determined
+        p for p in products.values()
+        if p.get("price", 0) > 0 or p.get("quantity", 0) > 0
     ]
-    skipped = len(products) - len(result)
-    log.info("CommerceML parsed: %d items, %d skipped (no size)", len(result), skipped)
+    log.info("CommerceML parsed: %d items", len(result))
     return result

@@ -120,7 +120,7 @@ function switchTab(name) {
 
 // ── Stats ──────────────────────────────────────────────────────────────────────
 function renderStats(data) {
-  const labels = { sneakers: "Товары", orders: "Заказы", conversations: "Диалоги", messages: "Сообщения" };
+  const labels = { products: "Товары", sneakers: "Товары", orders: "Заказы", conversations: "Диалоги", messages: "Сообщения" };
   document.getElementById("stats-grid").innerHTML = Object.entries(labels).map(([k, label]) => `
     <article class="stat-card">
       <span>${label}</span>
@@ -138,9 +138,14 @@ function renderSubBanner(sub) {
   const cls = isExpired ? "expired" : (plan === "trial" ? "trial" : "active");
   const ends = sub.trial_ends_at || sub.period_ends_at;
   const endStr = ends ? ` · до ${new Date(ends).toLocaleDateString("ru-RU")}` : "";
+  const used = sub.messages_used ?? 0;
+  const limit = sub.messages_limit ?? 0;
+  const limitStr = sub.unlimited || limit >= 999999
+    ? `Использовано: ${used} (безлимит)`
+    : `Сообщения: ${used} / ${limit}`;
   el.innerHTML = `<div class="sub-banner ${cls}">
     <span>Тариф: <strong>${plan.toUpperCase()}</strong>${endStr}</span>
-    <span>Лимит: ${sub.messages_limit} сообщений</span>
+    <span>${limitStr}</span>
   </div>`;
 }
 
@@ -174,21 +179,21 @@ function renderCatalog(data) {
 }
 
 function matchProduct(p, q) {
-  return ["brand","model","colorway","category"].some(f => (p[f] || "").toLowerCase().includes(q));
+  const attrs = typeof p.attributes === "object" ? JSON.stringify(p.attributes) : (p.attributes || "");
+  return ["name","sku","category","description"].some(f => (p[f] || "").toLowerCase().includes(q))
+    || attrs.toLowerCase().includes(q);
 }
 
 function renderCatalogFiltered(items) {
   document.getElementById("catalog-body").innerHTML = items.map(p => `
     <tr data-id="${p.id}">
-      <td>${esc(p.brand)}</td>
-      <td>${esc(p.model)}</td>
-      <td>${esc(p.colorway || "—")}</td>
-      <td>${esc(p.size)}</td>
+      <td>${esc(p.name)}</td>
+      <td>${esc(p.sku || "—")}</td>
+      <td>${esc(p.category || "—")}</td>
       <td class="editable-cell" data-field="quantity" data-value="${p.quantity}">${esc(p.quantity)}</td>
       <td class="editable-cell" data-field="price" data-value="${p.price}">${fmtPrice(p.price)}</td>
-      <td>${esc(p.category || "—")}</td>
     </tr>
-  `).join("") || `<tr><td colspan="7" class="muted center">Каталог пуст</td></tr>`;
+  `).join("") || `<tr><td colspan="5" class="muted center">Каталог пуст</td></tr>`;
   attachEditListeners();
 }
 
@@ -275,15 +280,52 @@ async function handleStatus(e) {
 }
 
 // ── Bot settings ───────────────────────────────────────────────────────────────
+const DATA_SOURCE_LABELS = {
+  manual: "Вручную / CSV",
+  csv: "CSV",
+  moysklad: "МойСклад",
+  "1c": "1С",
+  api: "REST API",
+};
+
 function fillBotSettings(shop) {
   document.getElementById("shop-name-input").value = shop.name || "";
+  const groqInput = document.getElementById("groq-key-input");
+  const clearGroqBtn = document.getElementById("clear-groq-key-btn");
+  if (groqInput) groqInput.value = "";
+  if (clearGroqBtn) clearGroqBtn.classList.toggle("hidden", !shop.has_own_groq_key);
+  document.getElementById("bot-role-input").value = shop.bot_role || "";
+  document.getElementById("business-type-input").value = shop.business_type || "";
+  document.getElementById("website-url-input").value = shop.website_url || "";
   document.getElementById("bot-prompt-input").value = shop.groq_system_prompt || "";
-  renderTgStatus(shop.has_tg_bot, shop.tg_bot_username || null);
-  renderMsStatus(shop.has_moysklad || false);
+  const dsBadge = document.getElementById("data-source-badge");
+  if (dsBadge) {
+    const src = shop.data_source || "manual";
+    dsBadge.textContent = `Источник: ${DATA_SOURCE_LABELS[src] || src}`;
+  }
+  const ownerTgInput = document.getElementById("owner-tg-id-input");
+  if (ownerTgInput) ownerTgInput.value = shop.owner_telegram_chat_id || "";
+  renderTgStatus(shop.has_tg_bot, shop.tg_bot_username || null, shop);
+  renderMsStatus(shop.has_moysklad || false, shop.sync_api_key || null);
   renderSyncApiKey(shop.sync_api_key || null);
 }
 
-function renderTgStatus(connected, username) {
+function renderTgNotifyHint(shop) {
+  const notifyHint = document.getElementById("tg-notify-hint");
+  if (!notifyHint) return;
+  const chatId = (shop?.owner_telegram_chat_id || "").trim();
+  if (!chatId) {
+    notifyHint.innerHTML = "Узнайте ID в <a href=\"https://t.me/userinfobot\" target=\"_blank\" rel=\"noopener\">@userinfobot</a> и нажмите /start у бота магазина.";
+    return;
+  }
+  notifyHint.innerHTML = shop?.has_order_notify
+    ? `✅ Уведомления на Telegram ID ${chatId}.`
+    : `Сохранён ID ${chatId}. Нажмите <strong>/start</strong> у бота магазина с этого аккаунта.`;
+}
+
+function renderTgStatus(connected, username, shopOrNotify) {
+  const shop = typeof shopOrNotify === "object" ? shopOrNotify : null;
+  const notifyOn = shop ? shop.has_order_notify : !!shopOrNotify;
   const badge       = document.getElementById("tg-status-badge");
   const connBlock   = document.getElementById("tg-connected-block");
   const connectBlock = document.getElementById("tg-connect-block");
@@ -294,6 +336,7 @@ function renderTgStatus(connected, username) {
     connectBlock.classList.add("hidden");
     document.getElementById("tg-bot-username").textContent =
       username ? `@${username}` : "Бот активен";
+    if (shop) renderTgNotifyHint(shop);
   } else {
     badge.textContent = "Не подключён";
     badge.className   = "status-badge badge-pending";
@@ -302,7 +345,7 @@ function renderTgStatus(connected, username) {
   }
 }
 
-function renderMsStatus(connected) {
+function renderMsStatus(connected, apiKey) {
   const badge        = document.getElementById("ms-status-badge");
   const connBlock    = document.getElementById("ms-connected-block");
   const connectBlock = document.getElementById("ms-connect-block");
@@ -312,6 +355,10 @@ function renderMsStatus(connected) {
     badge.className   = "status-badge badge-active";
     connBlock.classList.remove("hidden");
     connectBlock.classList.add("hidden");
+    const wh = document.getElementById("ms-webhook-url-connected");
+    if (wh) wh.textContent = `${location.origin}/sync/moysklad`;
+    const hint = document.getElementById("ms-api-key-hint");
+    if (hint) hint.textContent = apiKey || "сгенерируйте ключ в блоке ниже";
   } else {
     badge.textContent = "Не подключён";
     badge.className   = "status-badge badge-pending";
@@ -351,13 +398,47 @@ document.getElementById("ms-connect-btn").addEventListener("click", async () => 
   errEl.classList.add("hidden");
   if (!token) { errEl.textContent = "Введите токен"; errEl.classList.remove("hidden"); return; }
   try {
-    await api("/shop/moysklad-connect", { method: "POST", json: { token } });
-    renderMsStatus(true);
-    showToast("МойСклад подключён!", "success");
+    const r = await api("/shop/moysklad-connect", { method: "POST", json: { token } });
+    renderMsStatus(true, currentShop?.sync_api_key || null);
+    const sample = (r.sample || []).slice(0, 3).join(", ");
+    showToast(
+      `МойСклад: магазин «${r.shop_name || ""}» — ${r.in_stock || r.imported || 0} в наличии${sample ? ` (${sample})` : ""}`,
+      "success",
+    );
     document.getElementById("ms-token-input").value = "";
+    await loadAll();
   } catch (err) {
     errEl.textContent = err.message;
     errEl.classList.remove("hidden");
+  }
+});
+
+document.getElementById("ms-sync-btn")?.addEventListener("click", async () => {
+  try {
+    const r = await api("/shop/moysklad-sync", { method: "POST" });
+    const sample = (r.sample || []).slice(0, 3).join(", ");
+    showToast(
+      `Обновлено: ${r.in_stock || r.imported || 0} в наличии${sample ? ` — ${sample}` : ""}`,
+      "success",
+    );
+    await loadAll();
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+});
+
+document.getElementById("ms-replace-btn")?.addEventListener("click", async () => {
+  if (!confirm("Удалить все товары не из МойСклад и оставить только каталог МойСклад?")) return;
+  try {
+    const r = await api("/shop/moysklad-sync?replace=true", { method: "POST" });
+    const sample = (r.sample || []).slice(0, 5).join(", ");
+    showToast(
+      `Каталог заменён: ${r.imported || 0} позиций${sample ? ` (${sample})` : ""}`,
+      "success",
+    );
+    await loadAll();
+  } catch (err) {
+    showToast(err.message, "error");
   }
 });
 
@@ -413,7 +494,7 @@ function renderSubscription(sub) {
         <span class="muted">${sub.status === "active" ? "Активна" : "Истекла"}</span>
       </div>
       <div class="sub-details">
-        <div class="sub-detail"><div class="label">Лимит сообщений</div><div class="value">${sub.messages_limit}</div></div>
+        <div class="sub-detail"><div class="label">Сообщения</div><div class="value">${sub.unlimited || sub.messages_limit >= 999999 ? `${sub.messages_used || 0} / ∞` : `${sub.messages_used || 0} / ${sub.messages_limit}`}</div></div>
         <div class="sub-detail"><div class="label">Каналов</div><div class="value">${sub.channels_limit}</div></div>
         ${ends ? `<div class="sub-detail"><div class="label">Действует до</div><div class="value" style="font-size:15px">${new Date(ends).toLocaleDateString("ru-RU")}</div></div>` : ""}
       </div>
@@ -461,9 +542,9 @@ function renderImportResult(result) {
       <ul class="error-list">${result.errors.map(e => `<li>${esc(e)}</li>`).join("")}</ul>`;
     return;
   }
-  const rows = (result.preview || []).map(p => `<tr><td>${esc(p.brand)}</td><td>${esc(p.model)}</td><td>${esc(p.size)}</td><td>${esc(p.quantity)}</td><td>${fmtPrice(p.price)}</td></tr>`).join("");
+  const rows = (result.preview || []).map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.sku || "—")}</td><td>${esc(p.category || "—")}</td><td>${esc(p.quantity)}</td><td>${fmtPrice(p.price)}</td></tr>`).join("");
   el.innerHTML = `<p><strong>Файл валиден:</strong> ${result.valid_rows} строк</p>
-    <table class="preview-table"><thead><tr><th>Бренд</th><th>Модель</th><th>Р-р</th><th>Qty</th><th>Цена</th></tr></thead><tbody>${rows}</tbody></table>`;
+    <table class="preview-table"><thead><tr><th>Название</th><th>SKU</th><th>Категория</th><th>Остаток</th><th>Цена</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 async function uploadCsv(path) {
@@ -516,17 +597,18 @@ function renderAnalytics(data) {
     });
   }
 
-  // 2. Top brands — horizontal bar chart
+  // 2. Top categories — horizontal bar chart
   destroyChart("brands");
   const brandCtx = document.getElementById("chart-brands");
-  if (brandCtx && data.top_brands.length) {
+  const topCats = data.top_categories || data.top_brands || [];
+  if (brandCtx && topCats.length) {
     _charts["brands"] = new Chart(brandCtx, {
       type: "bar",
       data: {
-        labels: data.top_brands.map(r => r.brand),
+        labels: topCats.map(r => r.category || r.brand),
         datasets: [{
-          label: "SKU в наличии",
-          data: data.top_brands.map(r => r.cnt),
+          label: "Позиций в наличии",
+          data: topCats.map(r => r.cnt),
           backgroundColor: [
             "#2563eb","#7c3aed","#db2777","#ea580c",
             "#16a34a","#0891b2","#d97706","#64748b",
@@ -603,7 +685,7 @@ async function loadAll() {
       api("/shop/analytics/overview").catch(() => null),
     ]);
     currentShop = me;
-    document.getElementById("shop-name-sidebar").textContent = me.name || "Магазин";
+    document.getElementById("shop-name-sidebar").textContent = me.name ? `${me.name} #${me.id}` : "Магазин";
     document.getElementById("shop-email-sidebar").textContent = me.owner_email || "";
     document.getElementById("export-link").href = "#";
     document.getElementById("export-link").onclick = async (e) => {
@@ -739,13 +821,29 @@ document.getElementById("xml-1c-replace-btn").addEventListener("click", async ()
 
 document.getElementById("save-bot-settings").addEventListener("click", async () => {
   try {
+    const groqKey = document.getElementById("groq-key-input")?.value.trim() || "";
     await patchApi("/shop/settings", {
       name: document.getElementById("shop-name-input").value.trim() || null,
+      bot_role: document.getElementById("bot-role-input").value.trim() || null,
+      business_type: document.getElementById("business-type-input").value || null,
+      website_url: document.getElementById("website-url-input").value.trim() || null,
       groq_system_prompt: document.getElementById("bot-prompt-input").value.trim() || null,
+      groq_api_key: groqKey || null,
     });
     showToast("Настройки сохранены", "success");
     currentShop = await api("/shop/me");
     document.getElementById("shop-name-sidebar").textContent = currentShop.name;
+    fillBotSettings(currentShop);
+  } catch (err) { showToast(err.message, "error"); }
+});
+
+document.getElementById("clear-groq-key-btn")?.addEventListener("click", async () => {
+  if (!confirm("Удалить свой Groq API ключ? Бот будет использовать ключ платформы.")) return;
+  try {
+    await patchApi("/shop/settings", { clear_groq_api_key: true });
+    showToast("Свой Groq ключ удалён", "success");
+    currentShop = await api("/shop/me");
+    fillBotSettings(currentShop);
   } catch (err) { showToast(err.message, "error"); }
 });
 
@@ -762,6 +860,19 @@ function fmtDate(v) {
 }
 
 // ── Telegram bot ───────────────────────────────────────────────────────────────
+document.getElementById("save-notify-settings")?.addEventListener("click", async () => {
+  const raw = document.getElementById("owner-tg-id-input")?.value.trim() || "";
+  try {
+    const res = await patchApi("/shop/settings", { owner_telegram_chat_id: raw || null });
+    showToast(
+      res.has_order_notify ? "Telegram ID сохранён" : "Сохранено — нажмите /start у бота магазина",
+      "success",
+    );
+    currentShop = await api("/shop/me");
+    fillBotSettings(currentShop);
+  } catch (err) { showToast(err.message, "error"); }
+});
+
 document.getElementById("tg-connect-btn").addEventListener("click", async () => {
   const token  = document.getElementById("tg-token-input").value.trim();
   const errEl  = document.getElementById("tg-connect-error");
@@ -771,7 +882,7 @@ document.getElementById("tg-connect-btn").addEventListener("click", async () => 
     const r = await api("/shop/bot-connect", { method: "POST", json: { tg_token: token } });
     document.getElementById("tg-token-input").value = "";
     currentShop = await api("/shop/me");
-    renderTgStatus(true, r.bot_username);
+    renderTgStatus(true, r.bot_username, currentShop);
     showToast(`Бот @${r.bot_username || "?"} подключён!`, "success");
   } catch (err) {
     errEl.textContent = err.message;
@@ -784,7 +895,7 @@ document.getElementById("tg-disconnect-btn").addEventListener("click", async () 
   try {
     await api("/shop/bot-connect", { method: "DELETE" });
     currentShop = await api("/shop/me");
-    renderTgStatus(false, null);
+    renderTgStatus(false, null, currentShop);
     showToast("Бот отключён", "info");
   } catch (err) { showToast(err.message, "error"); }
 });
@@ -904,16 +1015,23 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
   const name     = document.getElementById("reg-name").value.trim();
   const email    = document.getElementById("reg-email").value.trim();
   const password = document.getElementById("reg-password").value;
+  const termsOk  = document.getElementById("reg-terms")?.checked;
   const errEl    = document.getElementById("register-error");
   const okEl     = document.getElementById("register-success");
   errEl.classList.add("hidden");
   okEl.classList.add("hidden");
 
+  if (!termsOk) {
+    errEl.textContent = "Примите оферту и политику конфиденциальности";
+    errEl.classList.remove("hidden");
+    return;
+  }
+
   try {
     const res = await fetch("/shop/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ shop_name: name, email, password }),
+      body: JSON.stringify({ shop_name: name, email, password, accepted_terms: true }),
     });
     let data = {};
     const ct = res.headers.get("content-type") || "";

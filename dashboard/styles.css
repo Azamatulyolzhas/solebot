@@ -94,6 +94,17 @@ body {
   text-decoration: underline;
 }
 
+.terms-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.terms-check input { margin-top: 3px; flex-shrink: 0; }
+.terms-check a { color: var(--accent); }
+
 /* ── App shell ─────────────────────────────────────────────────────────────── */
 .app {
   min-height: 100vh;

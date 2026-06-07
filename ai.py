@@ -3,14 +3,19 @@ import time
 
 import httpx
 
-from billing import is_subscription_active
+from billing import (
+    check_message_quota,
+    is_subscription_active,
+    quota_exceeded_message,
+    resolve_groq_api_key,
+)
 from cache import (
     chat_sessions,
     check_rate_limit,
-    load_session_history,
     save_session_message,
+    set_last_product_interest,
 )
-from config import GROQ_API_KEY, RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS
+from config import RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS
 from conversations import (
     get_or_create_conversation,
     load_recent_messages,
@@ -20,32 +25,31 @@ from conversations import (
 )
 from orders import handle_order_flow
 from products import (
-    build_product_context,
-    search_sneakers,
+    format_browse_reply,
+    format_catalog_reply,
+    get_relevant_products,
+    is_browse_query,
+    search_products,
 )
 from shops import resolve_shop_id
 
 log = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Ты консультант магазина кроссовок. Отвечай по-русски, кратко (2-3 предложения).
-
-КАТАЛОГ СКЛАДА (единственный источник правды):
-{product_context}
-
-СТРОГИЕ ПРАВИЛА:
-1. Используй ТОЛЬКО модели из каталога выше — с их ценами, размерами и остатком.
-2. НИКОГДА не выдумывай товары, бренды, цены или наличие из своих знаний.
-3. В каталоге перечислены все модели магазина — не говори что есть только один бренд.
-4. Цены указывай в ₸."""
-
 
 async def ask_ai(user_id: str, user_message: str, shop_id: int | None = None) -> str:
     if not user_message or not user_message.strip():
-        return "Напишите, какую модель, размер или стиль кроссовок вы ищете."
+        return "Напишите, какой товар вас интересует — проверю наличие в каталоге."
 
     shop_id = resolve_shop_id(shop_id)
     if not is_subscription_active(shop_id):
         return "Подписка магазина истекла. Обратитесь к владельцу магазина."
+
+    allowed, used, limit = check_message_quota(shop_id)
+    if not allowed:
+        return quota_exceeded_message(used, limit)
+
+    if not resolve_groq_api_key(shop_id):
+        return "ИИ-консультант временно недоступен. Добавьте Groq API ключ в настройках магазина."
 
     started_at = time.perf_counter()
     channel, external_user_id = split_user_id(user_id)
@@ -74,13 +78,9 @@ async def ask_ai(user_id: str, user_message: str, shop_id: int | None = None) ->
         conversation_id = get_or_create_conversation(channel, external_user_id, shop_id)
         save_message(conversation_id, "user", user_message)
         await save_session_message(user_id, "user", user_message)
-        history = await load_session_history(user_id)
-        if not history:
-            history = load_recent_messages(conversation_id, limit=6)
     except Exception:
         log.exception("Conversation storage failed")
         await save_session_message(user_id, "user", user_message)
-        history = await load_session_history(user_id)
 
     order_reply = await handle_order_flow(user_id, user_message, shop_id)
     if order_reply:
@@ -91,71 +91,32 @@ async def ask_ai(user_id: str, user_message: str, shop_id: int | None = None) ->
         return order_reply
 
     try:
-        product_context, product_count = build_product_context(user_message, shop_id=shop_id)
-    except Exception:
-        log.exception("RAG retrieval failed")
-        product_context = ""
-        product_count = 0
-
-    log.info("RAG shop_id=%s hits=%s chars=%s query=%r",
-             shop_id, product_count, len(product_context), user_message[:100])
-
-    if not product_context:
-        reply = fallback_reply(user_message, shop_id)
-        await save_ai_result(
-            user_id, conversation_id, channel, user_message, reply,
-            started_at, product_count, "catalog_fallback", shop_id=shop_id,
+        matched = get_relevant_products(user_message, shop_id=shop_id)
+        product_count = len(matched)
+        log.info(
+            "Catalog shop_id=%s hits=%s query=%r",
+            shop_id, product_count, user_message[:100],
         )
-        return reply
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT.format(product_context=product_context)},
-        *history,
-    ]
-
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {GROQ_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "llama-3.1-8b-instant",
-                    "max_tokens": 250,
-                    "temperature": 0.3,
-                    "messages": messages,
-                },
-                timeout=30.0,
-            )
-            resp.raise_for_status()
-        except httpx.HTTPError as e:
-            log.error(f"Groq request failed: {e}")
+        if matched:
+            reply = format_catalog_reply(matched)
+            interest = ", ".join(item["name"] for item in matched[:3])
+            await set_last_product_interest(user_id, interest)
+            mode = "catalog_exact"
+        elif is_browse_query(user_message):
+            reply = format_browse_reply(shop_id)
+            mode = "catalog_browse"
+        else:
             reply = fallback_reply(user_message, shop_id)
-            await save_ai_result(
-                user_id, conversation_id, channel, user_message, reply,
-                started_at, product_count, "fallback", shop_id=shop_id,
-            )
-            return reply
-
-    data = resp.json()
-    usage = data.get("usage") or {}
-
-    if "error" in data:
-        log.error(f"Groq error: {data['error']}")
+            mode = "catalog_fallback"
+    except Exception:
+        log.exception("Catalog reply failed")
         reply = fallback_reply(user_message, shop_id)
-        await save_ai_result(
-            user_id, conversation_id, channel, user_message, reply,
-            started_at, product_count, "fallback", usage=usage, shop_id=shop_id,
-        )
-        return reply
-
-    reply = data.get("choices", [{}])[0].get("message", {}).get("content", "Ошибка, попробуйте позже.")
+        mode = "catalog_fallback"
 
     await save_ai_result(
         user_id, conversation_id, channel, user_message, reply,
-        started_at, product_count, "ai", usage=usage, shop_id=shop_id,
+        started_at, product_count, mode, shop_id=shop_id,
     )
     return reply
 
@@ -201,36 +162,21 @@ async def save_ai_result(
 
 
 def fallback_reply(user_message: str, shop_id: int | None = None) -> str:
-    """Ответ из каталога без Groq — если поиск пустой или API недоступен."""
+    """Ответ из каталога без LLM — если поиск пустой."""
     try:
-        items = search_sneakers(user_message, shop_id)[:3]
-        if not items:
-            from products import get_catalog_sample
+        items = search_products(user_message, shop_id)[:3]
+        if items:
+            return format_catalog_reply(items)
+        from products import get_catalog_sample, format_products_context
 
-            items = get_catalog_sample(shop_id, limit=5)
-            if items:
-                lines = []
-                for item in items:
-                    lines.append(
-                        f"{item['brand']} {item['model']} {item.get('colorway') or ''}, "
-                        f"размер {item['size']}, {item['price']}₸"
-                    )
-                return (
-                    "Уточните бренд, модель или размер. А пока вот что есть на складе: "
-                    + "; ".join(lines)
-                )
+        sample = get_catalog_sample(shop_id, limit=5)
+        if sample:
+            return (
+                "Такого товара в каталоге нет. Вот что есть на складе: "
+                + "; ".join(format_products_context(sample).splitlines())
+            )
     except Exception:
         log.exception("Fallback search failed")
-        return "Сейчас не получается проверить склад. Напишите модель и размер — менеджер уточнит наличие."
+        return "Сейчас не получается проверить склад. Напишите название товара — менеджер уточнит наличие."
 
-    if not items:
-        return "Сейчас не вижу точного совпадения на складе. Напишите бренд, модель или нужный размер — проверю по каталогу."
-
-    lines = []
-    for item in items:
-        status = "есть" if item.get("quantity", 0) > 0 else "нет в наличии"
-        lines.append(
-            f"{item['brand']} {item['model']} {item.get('colorway') or ''}, "
-            f"размер {item['size']}, {item['price']}₸ — {status}"
-        )
-    return "Нашёл по складу: " + "; ".join(lines)
+    return "Такого товара в каталоге нет. Напишите название или категорию — проверю по складу."

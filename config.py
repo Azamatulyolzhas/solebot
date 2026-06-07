@@ -6,6 +6,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+# CrewAI multi-agent mode (Catalog Analyst + Sales Consultant)
+USE_CREWAI = os.getenv("USE_CREWAI", "false").lower() in ("1", "true", "yes")
+CREWAI_MODEL = os.getenv("CREWAI_MODEL", "llama-3.3-70b-versatile")
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
 
@@ -16,9 +21,9 @@ WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "mysecret")
 INSTAGRAM_TOKEN = os.getenv("INSTAGRAM_TOKEN", "")
 INSTAGRAM_VERIFY_TOKEN = os.getenv("INSTAGRAM_VERIFY_TOKEN", "mysecret")
 
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
-MANAGER_TELEGRAM_CHAT_ID = os.getenv("MANAGER_TELEGRAM_CHAT_ID", "")
-
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
 DB_PATH = os.getenv("DB_PATH", "sneakers.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 USE_POSTGRES = bool(DATABASE_URL)
@@ -43,4 +48,5 @@ PAYMENT_DETAILS = os.getenv("PAYMENT_DETAILS", "")    # Extra payment instructio
 # Email notifications via Resend (https://resend.com)
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@solebot.app")
+EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "SaleBot")
 SHOP_DASHBOARD_URL = os.getenv("SHOP_DASHBOARD_URL", "")

@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SoleBot — AI Telegram-бот для магазина кроссовок</title>
-  <meta name="description" content="Подключите умного Telegram-бота для вашего магазина кроссовок. ИИ отвечает на вопросы, принимает заказы, синхронизирует остатки с 1С и МойСклад.">
+  <title>SaleBot — AI Telegram-бот для вашего магазина</title>
+  <meta name="description" content="Подключите умного Telegram-бота для любого магазина: мебель, техника, одежда, косметика. ИИ отвечает на вопросы, принимает заказы, синхронизирует остатки с 1С и МойСклад.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/landing/static/styles.css?v=1">
+  <link rel="stylesheet" href="/landing/static/styles.css?v=2">
 </head>
 <body>
 
@@ -17,7 +17,7 @@
   <div class="container nav-inner">
     <a class="logo" href="/">
       <div class="logo-icon">S</div>
-      <span>SoleBot</span>
+      <span>SaleBot</span>
     </a>
     <nav class="nav-links">
       <a href="#features">Возможности</a>
@@ -57,13 +57,12 @@
         Telegram · AI · Казахстан
       </div>
       <h1 class="hero-title">
-        Умный Telegram-бот<br>
-        <span class="gradient-text">для вашего магазина</span><br>
-        кроссовок
+        <span class="gradient-text">AI Telegram-бот</span><br>
+        для вашего магазина
       </h1>
       <p class="hero-desc">
-        Бот сам отвечает на вопросы клиентов, проверяет наличие, принимает заказы
-        и обновляет каталог в реальном времени. Вы занимаетесь продажами — мы занимаемся остальным.
+        Мебель, техника, одежда, косметика — бот консультирует по вашему каталогу,
+        проверяет наличие, принимает заказы и синхронизирует остатки с 1С, МойСклад или CSV.
       </p>
       <div class="hero-actions">
         <a href="#register" class="btn-hero" id="hero-cta">
@@ -95,15 +94,15 @@
           <div class="chat-header">
             <div class="chat-avatar">S</div>
             <div>
-              <div class="chat-name">SoleBot</div>
+              <div class="chat-name">SaleBot</div>
               <div class="chat-online">В сети</div>
             </div>
           </div>
           <div class="chat-body">
-            <div class="msg msg-user">Есть Nike Air Force 1 42 размер?</div>
+            <div class="msg msg-user">Есть диван угловой серый?</div>
             <div class="msg msg-bot">
-              Да! Nike Air Force 1 Low White 42 — <strong>3 пары</strong> в наличии.<br>
-              Цена: <strong>45 000 ₸</strong> 🔥
+              Да! Диван «Комфорт» угловой, серый — <strong>2 шт.</strong> в наличии.<br>
+              Цена: <strong>189 000 ₸</strong>
             </div>
             <div class="msg msg-user">Хочу заказать</div>
             <div class="msg msg-bot">
@@ -147,10 +146,10 @@
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         </div>
         <h3>AI-поиск по каталогу</h3>
-        <p>Клиент пишет "есть адидас белые 43?" — бот мгновенно находит нужные позиции и показывает наличие и цену.</p>
+        <p>Клиент пишет «есть холодильник Samsung?» — бот находит позиции в каталоге и показывает наличие и цену.</p>
         <div class="feat-example">
-          <div class="ex-msg user">adidas campus белые 42</div>
-          <div class="ex-msg bot">Adidas Campus 00s White 42 — 2 пары · 38 000 ₸</div>
+          <div class="ex-msg user">холодильник samsung двухкамерный</div>
+          <div class="ex-msg bot">Samsung RB38 — 1 шт. · 349 000 ₸</div>
         </div>
       </div>
       <div class="feature-card">
@@ -252,7 +251,7 @@
       <div class="int-card">
         <div class="int-logo int-csv">CSV</div>
         <h4>Excel / Google Sheets</h4>
-        <p>Экспортируйте таблицу в CSV и загрузите в личном кабинете. Формат простой — 8 колонок.</p>
+        <p>Экспортируйте таблицу в CSV и загрузите в личном кабинете. Универсальный формат: название, SKU, категория, цена, остаток.</p>
         <div class="int-badge">Загрузка</div>
       </div>
       <div class="int-card">
@@ -360,9 +359,9 @@
     <div class="footer-brand">
       <a class="logo" href="/">
         <div class="logo-icon logo-sm">S</div>
-        <span>SoleBot</span>
+        <span>SaleBot</span>
       </a>
-      <p class="footer-desc">AI Telegram-бот для магазинов кроссовок и одежды. Казахстан и СНГ.</p>
+      <p class="footer-desc">AI Telegram-бот для любого интернет-магазина. Казахстан и СНГ.</p>
     </div>
     <div class="footer-links">
       <div class="footer-col">
@@ -380,13 +379,17 @@
   </div>
   <div class="footer-bottom">
     <div class="container">
-      <span>© 2026 SoleBot</span>
+      <span>© 2026 SaleBot</span>
+      <span class="footer-sep">·</span>
+      <a href="/legal/offer">Оферта</a>
+      <span class="footer-sep">·</span>
+      <a href="/legal/privacy">Конфиденциальность</a>
       <span class="footer-sep">·</span>
       <span>Казахстан</span>
     </div>
   </div>
 </footer>
 
-<script src="/landing/static/app.js?v=1"></script>
+<script src="/landing/static/app.js?v=2"></script>
 </body>
 </html>
