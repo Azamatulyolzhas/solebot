@@ -276,8 +276,23 @@ def product_not_found_reply() -> str:
     )
 
 
+def _clean_reply(text: str) -> str:
+    """Strip markdown and internal SKU labels from bot replies."""
+    # remove bold/italic markdown
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"\*(.+?)\*", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"__(.+?)__", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"_(.+?)_", r"\1", text, flags=re.DOTALL)
+    # remove heading markers
+    text = re.sub(r"(?m)^#{1,6}\s+", "", text)
+    # remove SKU labels that leak into customer-facing text
+    text = re.sub(r"\s*\(SKU:[^)]+\)", "", text)
+    text = re.sub(r"\bSKU:[A-Za-z0-9_\-]+\b", "", text)
+    return text.strip()
+
+
 def _append_order_hint(reply: str) -> str:
-    text = (reply or "").strip()
+    text = _clean_reply(reply or "")
     if not text or _ORDER_HINT in text:
         return text
     return f"{text}\n\n{_ORDER_HINT}"
@@ -482,7 +497,7 @@ async def build_greeting_reply(
         temperature=0.4,
     )
     if reply:
-        return reply, usage, "ai_greeting"
+        return _clean_reply(reply), usage, "ai_greeting"
     return greeting_reply(shop_id), {}, "greeting"
 
 
