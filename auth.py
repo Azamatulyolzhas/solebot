@@ -60,9 +60,7 @@ def verify_admin_credentials(email: str, password: str) -> bool:
         return False
     if ADMIN_PASSWORD_HASH and verify_password(password, ADMIN_PASSWORD_HASH):
         return True
-    if ADMIN_PASSWORD and password == ADMIN_PASSWORD:
-        return True
-
+    # plaintext ADMIN_PASSWORD fallback intentionally removed — use ADMIN_PASSWORD_HASH
     from shops import get_shop_by_email
 
     shop = get_shop_by_email(ADMIN_EMAIL)

@@ -192,6 +192,27 @@
           </div>
         </div>
 
+        <!-- Insights row -->
+        <div class="charts-row" id="insights-row">
+          <div class="panel chart-panel">
+            <div class="panel-head">
+              <h2>Конверсия за 30 дней</h2>
+              <span class="muted-sm">сообщения → заказы</span>
+            </div>
+            <div id="insights-conversion" class="insights-conversion">
+              <div class="conv-big" id="conv-pct">—</div>
+              <div class="conv-meta" id="conv-meta"></div>
+            </div>
+          </div>
+          <div class="panel chart-panel">
+            <div class="panel-head">
+              <h2>Топ запросов без результата</h2>
+              <span class="muted-sm">клиенты спрашивают, бот не находит</span>
+            </div>
+            <div id="missed-queries-list" class="top-list"></div>
+          </div>
+        </div>
+
         <div class="panel mt">
           <div class="panel-head"><h2>Последние диалоги</h2></div>
           <div id="overview-messages" class="message-list"></div>
@@ -464,8 +485,8 @@
             </label>
             <label class="form-label">
               Системный промпт (дополнительно)
-              <textarea id="bot-prompt-input" rows="6" placeholder="Дополнительные инструкции для ИИ..."></textarea>
-              <span class="muted small">Опишите тон и правила. Оставьте пустым — используется стандартный промпт с вашей ролью.</span>
+              <textarea id="bot-prompt-input" rows="6" placeholder="Будь дружелюбным и терпеливым. Помогай выбрать товар. Можешь давать общие советы по теме вопроса."></textarea>
+              <span class="muted small">Только тон и стиль общения. Не перечисляйте товары здесь — бот берёт их из каталога. Цены и наличие бот не выдумывает.</span>
             </label>
             <label class="form-label">
               Groq API ключ (опционально)

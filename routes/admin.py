@@ -1,4 +1,6 @@
 import logging
+import time as _time
+from collections import defaultdict as _defaultdict
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
@@ -61,6 +63,17 @@ class AdminLoginRequest(BaseModel):
 
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
 
+_admin_attempts: dict[str, list[float]] = _defaultdict(list)
+
+
+def _check_admin_rate(ip: str) -> None:
+    now = _time.time()
+    attempts = [t for t in _admin_attempts[ip] if now - t < 60]
+    attempts.append(now)
+    _admin_attempts[ip] = attempts
+    if len(attempts) > 5:
+        raise HTTPException(429, "Слишком много попыток входа.")
+
 
 @router.get("", response_class=HTMLResponse)
 async def admin_page():
@@ -70,7 +83,8 @@ async def admin_page():
 
 
 @router.post("/login")
-async def admin_login(body: AdminLoginRequest):
+async def admin_login(body: AdminLoginRequest, request: Request):
+    _check_admin_rate(request.client.host if request.client else "unknown")
     if not is_admin_configured():
         raise HTTPException(404, "Not found")
     if not verify_admin_credentials(body.email, body.password):

@@ -17,7 +17,8 @@ REQUIRED_CSV = {"name", "price", "quantity"}
 STOP_WORDS = {
     "есть", "ли", "какие", "какой", "какая", "какое", "хочу", "нужны", "нужен",
     "можно", "подскажи", "скажи", "покажи", "что", "это", "мне", "для", "вы",
-    "нет", "как", "про", "по", "на", "из",
+    "нет", "как", "про", "по", "на", "из", "у", "вас", "вам", "меня", "этого",
+    "занимаюсь", "занимается", "который", "которая", "которые",
 }
 
 BROWSE_TERMS = {
@@ -277,6 +278,36 @@ def _insert_product(conn, shop_id: int, item: dict) -> None:
         )
 
 
+def _update_embeddings(conn, shop_id: int, products: list[dict]) -> None:
+    """Write embeddings for newly inserted products. Runs after commit."""
+    from embeddings import embed_products, is_available
+    if not is_available():
+        return
+    try:
+        vecs = embed_products(products)
+        for product, vec in zip(products, vecs):
+            if vec is None:
+                continue
+            sku = (product.get("sku") or "").strip()
+            name = product.get("name") or ""
+            if sku:
+                conn.execute(
+                    "UPDATE products SET embedding = %s::vector "
+                    "WHERE shop_id = %s AND LOWER(sku) = LOWER(%s)",
+                    (str(vec), shop_id, sku),
+                )
+            else:
+                conn.execute(
+                    "UPDATE products SET embedding = %s::vector "
+                    "WHERE shop_id = %s AND LOWER(name) = LOWER(%s) AND embedding IS NULL",
+                    (str(vec), shop_id, name),
+                )
+        conn.commit()
+        log.info("Embeddings updated for %d products in shop %d", len(products), shop_id)
+    except Exception:
+        log.exception("Embedding update failed for shop %d", shop_id)
+
+
 def import_products(products: list[dict], replace: bool = False, shop_id: int | None = None) -> int:
     ensure_app_tables()
     shop_id = resolve_shop_id(shop_id)
@@ -293,6 +324,10 @@ def import_products(products: list[dict], replace: bool = False, shop_id: int | 
             _insert_product(conn, shop_id, item)
 
         conn.commit()
+
+        if USE_POSTGRES:
+            _update_embeddings(conn, shop_id, products)
+
         return len(products)
     finally:
         conn.close()
@@ -365,12 +400,16 @@ def get_catalog_summary(shop_id: int | None = None, limit: int = 60) -> list[dic
 
 
 def _search_word_variants(word: str) -> list[str]:
-    """Extra variants for common RU typos: мячь → мяч."""
+    """Extra variants for common RU typos and plurals: мячь → мяч, мячи → мяч."""
     variants = [word]
     if len(word) > 3 and word.endswith("ь"):
         variants.append(word[:-1])
     if len(word) > 4 and word.endswith("ий"):
         variants.append(word[:-2] + "и")
+    if len(word) > 3 and word.endswith("и"):
+        variants.append(word[:-1])
+    if len(word) > 3 and word.endswith("ы"):
+        variants.append(word[:-1])
     out = []
     for v in variants:
         if v and v not in out:
@@ -380,10 +419,16 @@ def _search_word_variants(word: str) -> list[str]:
 
 def extract_query_words(query: str) -> list[str]:
     q_lower = query.lower()
-    return [
+    raw = [
         w for w in re.findall(r"[\w-]+", q_lower)
         if len(w) >= 2 and w not in STOP_WORDS
     ]
+    out: list[str] = []
+    for w in raw:
+        for variant in _search_word_variants(w):
+            if variant not in out:
+                out.append(variant)
+    return out
 
 
 def search_products_db(
@@ -427,6 +472,41 @@ def search_products_db(
         LIMIT {ph}
         """,
         [shop_id, *params, limit],
+    )
+    return [_normalize_row(r) for r in rows]
+
+
+def get_all_catalog_products(shop_id: int | None = None) -> list[dict]:
+    """All in-stock products for AI-based relevance search."""
+    ph = db_placeholder()
+    shop_id = resolve_shop_id(shop_id)
+    rows = fetch_all(
+        f"""
+        SELECT id, name, description, sku, category, price, quantity, attributes
+        FROM products
+        WHERE shop_id = {ph} AND quantity > 0
+        ORDER BY name, sku, id
+        """,
+        (shop_id,),
+    )
+    return [_normalize_row(r) for r in rows]
+
+
+def get_products_by_ids(shop_id: int | None, product_ids: list[int]) -> list[dict]:
+    ids = [int(i) for i in product_ids if i is not None]
+    if not ids:
+        return []
+    ph = db_placeholder()
+    shop_id = resolve_shop_id(shop_id)
+    placeholders = ", ".join([ph] * len(ids))
+    rows = fetch_all(
+        f"""
+        SELECT id, name, description, sku, category, price, quantity, attributes
+        FROM products
+        WHERE shop_id = {ph} AND id IN ({placeholders})
+        ORDER BY name, sku, id
+        """,
+        [shop_id, *ids],
     )
     return [_normalize_row(r) for r in rows]
 
@@ -579,15 +659,72 @@ def search_sneakers(query: str, shop_id: int | None = None) -> list[dict]:
     return search_products(query, shop_id)
 
 
-def get_relevant_products(query: str, limit: int = SKU_DETAIL_LIMIT, shop_id: int | None = None) -> list[dict]:
-    shop_id = resolve_shop_id(shop_id)
-    words = extract_query_words(query)
-    if not words:
+def vector_search_products(
+    query: str,
+    shop_id: int,
+    limit: int = SKU_DETAIL_LIMIT,
+) -> list[dict]:
+    """Semantic search via pgvector cosine similarity. Returns [] if unavailable."""
+    from embeddings import embed_text, is_available
+    if not is_available():
         return []
-    items = search_products_db(words, shop_id, limit=limit, in_stock_only=False)
-    if items:
-        return items
-    return search_products_db(words, shop_id, limit=limit)
+
+    vec = embed_text(query)
+    if vec is None:
+        return []
+
+    try:
+        rows = fetch_all(
+            """
+            SELECT id, name, description, sku, category, price, quantity, attributes
+            FROM products
+            WHERE shop_id = %s AND quantity > 0 AND embedding IS NOT NULL
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+            """,
+            (shop_id, str(vec), limit),
+        )
+        results = [_normalize_row(r) for r in rows]
+        log.info("Vector search shop=%s query=%r hits=%d", shop_id, query[:60], len(results))
+        return results
+    except Exception:
+        log.exception("Vector search failed for shop %d", shop_id)
+        return []
+
+
+async def get_relevant_products(
+    query: str,
+    shop_id: int | None = None,
+    *,
+    shop: dict | None = None,
+    api_key: str | None = None,
+    limit: int = SKU_DETAIL_LIMIT,
+    history: list[dict] | None = None,
+) -> list[dict]:
+    """Semantic product search: pgvector first, Groq AI fallback."""
+    if is_browse_query(query):
+        return []
+
+    shop_id = resolve_shop_id(shop_id)
+
+    # Fast semantic search — no tokens consumed
+    found = vector_search_products(query, shop_id, limit=limit)
+    if found:
+        return found
+
+    # Fallback: send full catalog to Groq (original behaviour)
+    all_products = get_all_catalog_products(shop_id)
+    if not all_products or not api_key:
+        return []
+
+    from ai import find_products_via_ai
+    from shops import get_shop_by_id
+
+    shop = shop or get_shop_by_id(shop_id) or {}
+    found = await find_products_via_ai(
+        shop, query, all_products, api_key, shop_id, history=history or [],
+    )
+    return found[:limit]
 
 
 def _stock_label(qty: int) -> str:
@@ -624,8 +761,17 @@ def format_browse_reply(shop_id: int | None = None) -> str:
     return "Вот что есть на складе:\n" + "\n".join(lines)
 
 
-def get_relevant_sneakers(query: str, limit: int = SKU_DETAIL_LIMIT, shop_id: int | None = None) -> list[dict]:
-    return get_relevant_products(query, limit=limit, shop_id=shop_id)
+async def get_relevant_sneakers(
+    query: str,
+    limit: int = SKU_DETAIL_LIMIT,
+    shop_id: int | None = None,
+    *,
+    shop: dict | None = None,
+    api_key: str | None = None,
+) -> list[dict]:
+    return await get_relevant_products(
+        query, shop_id, shop=shop, api_key=api_key, limit=limit,
+    )
 
 
 def format_products_context(items: list[dict], shop_id: int | None = None) -> str:

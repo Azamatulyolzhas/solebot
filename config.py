@@ -7,19 +7,8 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-# CrewAI multi-agent mode (Catalog Analyst + Sales Consultant)
-USE_CREWAI = os.getenv("USE_CREWAI", "false").lower() in ("1", "true", "yes")
-CREWAI_MODEL = os.getenv("CREWAI_MODEL", "llama-3.3-70b-versatile")
-
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
-
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "")
-WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "mysecret")
-
-INSTAGRAM_TOKEN = os.getenv("INSTAGRAM_TOKEN", "")
-INSTAGRAM_VERIFY_TOKEN = os.getenv("INSTAGRAM_VERIFY_TOKEN", "mysecret")
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
@@ -37,7 +26,15 @@ RATE_LIMIT_MESSAGES = int(os.getenv("RATE_LIMIT_MESSAGES", "10"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 
 # JWT secret for shop owner tokens — set a strong random string in .env
-JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+if not JWT_SECRET:
+    import secrets as _secrets
+    JWT_SECRET = _secrets.token_hex(32)
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "JWT_SECRET not set in .env — using random ephemeral key. "
+        "All sessions will be invalidated on restart. Set JWT_SECRET in production!"
+    )
 JWT_ALGORITHM = "HS256"
 JWT_TTL_DAYS = int(os.getenv("JWT_TTL_DAYS", "30"))
 

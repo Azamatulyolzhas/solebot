@@ -1,30 +1,19 @@
 import logging
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse
 
 from ai import ask_ai
 from models import ChatRequest, ChatResponse
-from config import (
-    INSTAGRAM_TOKEN,
-    INSTAGRAM_VERIFY_TOKEN,
-    TELEGRAM_BOT_TOKEN,
-    WHATSAPP_TOKEN,
-    WHATSAPP_VERIFY_TOKEN,
-)
+from config import TELEGRAM_BOT_TOKEN
 from admin_service import get_database_status
 from cache import get_redis_status
-from instagram_client import send_instagram
 from products import get_catalog_summary, list_in_stock_categories, search_products_db
 from shops import get_default_shop_id, resolve_shop_id
-from whatsapp_client import send_whatsapp
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
-
-WHATSAPP_VERIFY = WHATSAPP_VERIFY_TOKEN
-INSTAGRAM_VERIFY = INSTAGRAM_VERIFY_TOKEN
 
 
 @router.get("/store", response_class=HTMLResponse)
@@ -77,8 +66,6 @@ async def health():
         },
         "channels": {
             "telegram": bool(TELEGRAM_BOT_TOKEN),
-            "whatsapp": bool(WHATSAPP_TOKEN),
-            "instagram": bool(INSTAGRAM_TOKEN),
             "web": True,
         },
     }
@@ -123,56 +110,3 @@ async def telegram_shop_webhook(webhook_secret: str, request: Request):
     return {"ok": True, "shop_id": shop.get("id")}
 
 
-@router.get("/wa/webhook")
-async def whatsapp_verify(request: Request):
-    from fastapi import HTTPException
-
-    p = request.query_params
-    if p.get("hub.verify_token") == WHATSAPP_VERIFY:
-        return PlainTextResponse(p.get("hub.challenge", ""))
-    raise HTTPException(403, "Неверный verify token")
-
-
-@router.post("/wa/webhook")
-async def whatsapp_message(request: Request):
-    data = await request.json()
-    try:
-        entry = data["entry"][0]
-        change = entry["changes"][0]["value"]
-        msg = change["messages"][0]
-        phone = msg["from"]
-        text = msg["text"]["body"]
-        user_id = f"wa_{phone}"
-
-        reply = await ask_ai(user_id, text)
-        await send_whatsapp(phone, reply)
-    except (KeyError, IndexError):
-        pass
-    return {"status": "ok"}
-
-
-@router.get("/ig/webhook")
-async def instagram_verify(request: Request):
-    from fastapi import HTTPException
-
-    p = request.query_params
-    if p.get("hub.verify_token") == INSTAGRAM_VERIFY:
-        return PlainTextResponse(p.get("hub.challenge", ""))
-    raise HTTPException(403, "Неверный verify token")
-
-
-@router.post("/ig/webhook")
-async def instagram_message(request: Request):
-    data = await request.json()
-    try:
-        entry = data["entry"][0]
-        msg = entry["messaging"][0]
-        sender = msg["sender"]["id"]
-        text = msg["message"]["text"]
-        user_id = f"ig_{sender}"
-
-        reply = await ask_ai(user_id, text)
-        await send_instagram(sender, reply)
-    except (KeyError, IndexError):
-        pass
-    return {"status": "ok"}

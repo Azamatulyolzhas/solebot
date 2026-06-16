@@ -151,6 +151,26 @@ def drop_legacy_sneakers_table(conn) -> None:
     log.info("Legacy sneakers table removed")
 
 
+def _enable_vector_search(conn) -> None:
+    """Add pgvector extension and embedding column to products. Safe to re-run."""
+    try:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    except Exception as e:
+        log.warning("pgvector extension not available: %s — vector search disabled", e)
+        return
+    try:
+        conn.execute(
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS embedding vector(384)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_products_embedding "
+            "ON products USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
+        )
+        log.info("pgvector: embedding column and index ready")
+    except Exception:
+        log.exception("pgvector schema migration failed")
+
+
 def ensure_app_tables() -> None:
     conn = get_db()
     try:
@@ -263,6 +283,7 @@ def ensure_app_tables() -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_products_shop ON products(shop_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_products_sku ON products(shop_id, sku)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_shop ON orders(shop_id)")
+            _enable_vector_search(conn)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_shop ON conversations(shop_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_shop ON subscriptions(shop_id)")
             conn.execute("""

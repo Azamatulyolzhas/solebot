@@ -1,11 +1,12 @@
 import logging
 
 import httpx
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart
-from aiogram.types import Message
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.filters import Command, CommandStart
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from ai import ask_ai
+from ai import ask_ai, _ORDER_HINT
+from cache import clear_chat_context, clear_handoff_state, get_handoff_state, set_handoff_state
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_URL
 from shops import get_all_active_telegram_shops, get_shop_by_id, get_shop_by_webhook_secret
 
@@ -21,6 +22,8 @@ if tg_dp:
 
     @tg_dp.message(CommandStart())
     async def tg_start(msg: Message):
+        user_id = f"tg_{msg.from_user.id}"
+        await clear_chat_context(user_id)
         await msg.answer(
             "Привет! Я AI-консультант магазина.\n"
             "Спросите о любом товаре — проверю наличие и цену по каталогу."
@@ -47,12 +50,40 @@ async def register_shop_bot(shop: dict) -> None:
 
         @dp.message(CommandStart())
         async def shop_start(msg: Message):
+            user_id = f"tg_{shop_id}_{msg.from_user.id}"
+            await clear_chat_context(user_id)
+            await clear_handoff_state(user_id)
             fresh = get_shop_by_id(shop_id) or {}
             bot_role = fresh.get("bot_role") or "консультант"
             await msg.answer(
                 f"Привет! Я {bot_role} магазина {fresh.get('name')}.\n"
                 "Спросите о товаре — проверю наличие и цену по каталогу."
             )
+
+        @dp.message(Command("operator"))
+        async def shop_operator(msg: Message):
+            user_id = f"tg_{shop_id}_{msg.from_user.id}"
+            already = await get_handoff_state(user_id)
+            if already:
+                await msg.answer("Менеджер уже уведомлён и скоро свяжется с вами.")
+                return
+            await set_handoff_state(user_id)
+            fresh = get_shop_by_id(shop_id) or {}
+            from notifications import notify_handoff
+            from conversations import split_user_id
+            _, ext_id = split_user_id(user_id)
+            await notify_handoff(
+                user_id, msg.text or "/operator", "tg", ext_id,
+                shop_id, reason="operator",
+            )
+            await msg.answer(
+                "Понял, передаю вас менеджеру. Он скоро свяжется с вами. "
+                "Чтобы снова общаться с ботом — напишите /start."
+            )
+
+        _BUY_KB = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🛒 Хочу купить", callback_data="buy")
+        ]])
 
         @dp.message()
         async def shop_message(msg: Message):
@@ -66,9 +97,39 @@ async def register_shop_bot(shop: dict) -> None:
                 await msg.answer(f"⚠️ {quota_exceeded_message(used, limit)}")
                 return
             user_id = f"tg_{shop_id}_{msg.from_user.id}"
+
+            if await get_handoff_state(user_id):
+                await msg.answer("Менеджер скоро свяжется с вами. Чтобы снова общаться с ботом — напишите /start.")
+                return
+
             await msg.bot.send_chat_action(msg.chat.id, "typing")
             reply = await ask_ai(user_id, msg.text or "", shop_id=shop_id)
-            await msg.answer(reply)
+
+            if _ORDER_HINT in reply:
+                text = reply.replace(_ORDER_HINT, "").rstrip()
+                await msg.answer(text, reply_markup=_BUY_KB)
+            else:
+                await msg.answer(reply)
+
+        @dp.callback_query(F.data == "buy")
+        async def shop_buy_callback(cb: CallbackQuery):
+            from billing import check_message_quota, is_subscription_active, quota_exceeded_message
+            from orders import handle_order_flow
+
+            if not is_subscription_active(shop_id):
+                await cb.answer("Подписка магазина истекла.", show_alert=True)
+                return
+
+            allowed, used, limit = check_message_quota(shop_id)
+            if not allowed:
+                await cb.answer(quota_exceeded_message(used, limit), show_alert=True)
+                return
+
+            user_id = f"tg_{shop_id}_{cb.from_user.id}"
+            await cb.answer()
+            order_reply = await handle_order_flow(user_id, "хочу купить", shop_id=shop_id)
+            if order_reply:
+                await cb.message.answer(order_reply)
 
         fresh = get_shop_by_id(shop_id) or shop
         shop_bots[secret] = (bot, dp, fresh)

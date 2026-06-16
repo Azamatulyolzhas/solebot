@@ -43,12 +43,28 @@ from shops import (
     update_shop_settings,
 )
 
+import time as _time
+from collections import defaultdict as _defaultdict
+
 log = logging.getLogger(__name__)
 
 DASHBOARD_INDEX = Path(__file__).resolve().parent.parent / "dashboard" / "index.html"
 
 router = APIRouter(prefix="/shop")
 _bearer = HTTPBearer(auto_error=False)
+
+_login_attempts: dict[str, list[float]] = _defaultdict(list)
+_LOGIN_MAX = 10
+_LOGIN_WINDOW = 60
+
+
+def _check_login_rate(ip: str) -> None:
+    now = _time.time()
+    attempts = [t for t in _login_attempts[ip] if now - t < _LOGIN_WINDOW]
+    attempts.append(now)
+    _login_attempts[ip] = attempts
+    if len(attempts) > _LOGIN_MAX:
+        raise HTTPException(429, "Слишком много попыток входа. Подождите минуту.")
 
 
 # ── Auth dependency ────────────────────────────────────────────────────────────
@@ -129,9 +145,9 @@ async def shop_register(body: RegisterRequest):
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         log.exception("Register failed")
-        raise HTTPException(500, f"Ошибка сервера: {e}") from e
+        raise HTTPException(500, "Ошибка сервера, попробуйте позже") from None
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -186,7 +202,8 @@ async def dashboard_redirect():
 
 
 @router.post("/login")
-async def shop_login(body: LoginRequest):
+async def shop_login(body: LoginRequest, request: Request):
+    _check_login_rate(request.client.host if request.client else "unknown")
     shop = get_shop_by_email(body.email)
     if not shop:
         raise HTTPException(401, "Неверный email или пароль")
@@ -288,6 +305,82 @@ async def analytics_overview(shop: dict = Depends(get_current_shop)):
         "unique_users":   uniq[0]["cnt"] if uniq else 0,
         "order_stats":    {r["status"]: r["cnt"] for r in order_stats},
     }
+
+
+@router.get("/analytics/insights")
+async def analytics_insights(shop: dict = Depends(get_current_shop)):
+    """Конверсия, топ пустых запросов, средняя latency — из analytics_events."""
+    from db import fetch_all, fetch_one_value, db_placeholder
+    import config as _cfg
+    import json as _json
+    sid = shop["id"]
+    ph = db_placeholder()
+    try:
+        interval = "NOW() - INTERVAL '30 days'" if _cfg.USE_POSTGRES else "datetime('now','-30 days')"
+        payload_field = "payload" if _cfg.USE_POSTGRES else "payload"
+
+        total = fetch_one_value(
+            f"SELECT COUNT(*) FROM analytics_events WHERE shop_id = {ph} AND event_name = 'chat_reply' AND created_at >= {interval}",
+            (sid,),
+        ) or 0
+
+        orders_count = fetch_one_value(
+            f"SELECT COUNT(*) FROM orders WHERE shop_id = {ph} AND created_at >= {interval}",
+            (sid,),
+        ) or 0
+
+        conversion = round(orders_count / total * 100, 1) if total > 0 else 0
+
+        if _cfg.USE_POSTGRES:
+            avg_latency = fetch_one_value(
+                f"SELECT AVG((payload->>'latency_ms')::int) FROM analytics_events WHERE shop_id = {ph} AND event_name = 'chat_reply' AND created_at >= {interval}",
+                (sid,),
+            )
+            missed_rows = fetch_all(
+                f"""
+                SELECT payload->>'user_message' AS query, COUNT(*) AS cnt
+                FROM analytics_events
+                WHERE shop_id = {ph}
+                  AND event_name = 'chat_reply'
+                  AND payload->>'mode' = 'catalog_not_found'
+                  AND created_at >= {interval}
+                GROUP BY query
+                ORDER BY cnt DESC
+                LIMIT 10
+                """,
+                (sid,),
+            )
+        else:
+            avg_latency = None
+            missed_rows = fetch_all(
+                f"""
+                SELECT json_extract(payload, '$.user_message') AS query, COUNT(*) AS cnt
+                FROM analytics_events
+                WHERE shop_id = {ph}
+                  AND event_name = 'chat_reply'
+                  AND json_extract(payload, '$.mode') = 'catalog_not_found'
+                  AND created_at >= {interval}
+                GROUP BY query
+                ORDER BY cnt DESC
+                LIMIT 10
+                """,
+                (sid,),
+            )
+
+        return {
+            "period_days": 30,
+            "total_messages": total,
+            "orders_from_bot": orders_count,
+            "conversion_pct": conversion,
+            "avg_latency_ms": int(avg_latency) if avg_latency else None,
+            "top_missed_queries": [
+                {"query": r["query"], "cnt": r["cnt"]}
+                for r in missed_rows if r.get("query")
+            ],
+        }
+    except Exception as e:
+        log.error("analytics_insights failed: %s", e)
+        return {"error": str(e)}
 
 
 @router.get("/stats")

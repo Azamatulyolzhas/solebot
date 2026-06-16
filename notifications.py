@@ -79,6 +79,33 @@ async def notify_subscription_email(shop_id: int, *, reason: str = "updated") ->
     )
 
 
+async def notify_handoff(
+    user_id: str,
+    last_query: str,
+    channel: str,
+    external_user_id: str,
+    shop_id: int | None = None,
+    *,
+    reason: str = "operator",
+) -> None:
+    """Notify shop owner that a client requested a live operator."""
+    try:
+        shop_id = resolve_shop_id(shop_id)
+        shop = get_shop_by_id(shop_id)
+        if not shop:
+            return
+        reason_text = "запросил оператора (/operator)" if reason == "operator" else "3 раза не нашёл товар"
+        text = (
+            f"🙋 Клиент ждёт оператора — {shop.get('name') or 'Магазин'}\n"
+            f"Канал: {channel} | ID: {external_user_id}\n"
+            f"Причина: {reason_text}\n"
+            f"Последний запрос: {last_query[:200]}"
+        )
+        await _send_shop_telegram(shop, text)
+    except Exception as e:
+        log.error("Handoff notification failed: %s", e)
+
+
 async def notify_shop_owner(
     order_id: int | None,
     state: dict,

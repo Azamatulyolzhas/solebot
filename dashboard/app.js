@@ -671,10 +671,47 @@ function renderAnalytics(data) {
   }
 }
 
+// ── Insights ───────────────────────────────────────────────────────────────────
+function renderInsights(data) {
+  if (!data || data.error) return;
+
+  const pctEl  = document.getElementById("conv-pct");
+  const metaEl = document.getElementById("conv-meta");
+  if (pctEl) {
+    const pct = data.conversion_pct ?? 0;
+    pctEl.textContent = pct + "%";
+    pctEl.style.color = pct >= 5 ? "#16a34a" : pct >= 2 ? "#d97706" : "#dc2626";
+  }
+  if (metaEl) {
+    const lat = data.avg_latency_ms ? `· ${data.avg_latency_ms} мс ответ` : "";
+    metaEl.textContent =
+      `${data.orders_from_bot} заказов из ${data.total_messages} сообщений ${lat}`;
+  }
+
+  const missedEl = document.getElementById("missed-queries-list");
+  if (missedEl) {
+    const rows = data.top_missed_queries || [];
+    if (rows.length === 0) {
+      missedEl.innerHTML = `<p class="muted center" style="padding:40px 0">Пустых запросов нет 🎉</p>`;
+      return;
+    }
+    const max = rows[0].cnt || 1;
+    missedEl.innerHTML = rows.map(r => `
+      <div class="top-list-item">
+        <span class="top-list-label" title="${esc(r.query)}">${esc(r.query.length > 40 ? r.query.slice(0,40)+"…" : r.query)}</span>
+        <div class="top-list-bar-wrap">
+          <div class="top-list-bar missed-bar" style="width:${Math.round(r.cnt/max*100)}%"></div>
+        </div>
+        <span class="top-list-value">${r.cnt}×</span>
+      </div>
+    `).join("");
+  }
+}
+
 // ── Load all ───────────────────────────────────────────────────────────────────
 async function loadAll() {
   try {
-    const [me, stats, products, orders, messages, sub, payInfo, analytics] = await Promise.all([
+    const [me, stats, products, orders, messages, sub, payInfo, analytics, insights] = await Promise.all([
       api("/shop/me"),
       api("/shop/stats"),
       api(`/shop/products?limit=${catalogLimit}&offset=${catalogOffset}`),
@@ -683,6 +720,7 @@ async function loadAll() {
       api("/shop/subscription").catch(() => null),
       api("/shop/payment-info").catch(() => null),
       api("/shop/analytics/overview").catch(() => null),
+      api("/shop/analytics/insights").catch(() => null),
     ]);
     currentShop = me;
     document.getElementById("shop-name-sidebar").textContent = me.name ? `${me.name} #${me.id}` : "Магазин";
@@ -706,6 +744,7 @@ async function loadAll() {
     renderPaymentInfo(payInfo);
     renderProfile(me);
     renderAnalytics(analytics);
+    renderInsights(insights);
   } catch (err) {
     showToast(err.message || "Ошибка загрузки", "error");
   }

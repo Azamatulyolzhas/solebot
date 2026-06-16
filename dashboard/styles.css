@@ -424,6 +424,12 @@ hr.divider { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
 .req-value { font-size: 15px; font-weight: 600; }
 .req-note { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
 
+/* ── Insights ──────────────────────────────────────────────────────────────── */
+.insights-conversion { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 16px; gap: 8px; }
+.conv-big { font-size: 56px; font-weight: 800; line-height: 1; }
+.conv-meta { font-size: 13px; color: var(--muted); text-align: center; }
+.missed-bar { background: #f87171 !important; }
+
 /* ── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
