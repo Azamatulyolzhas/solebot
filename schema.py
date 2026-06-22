@@ -172,6 +172,44 @@ def _enable_vector_search(conn) -> None:
         log.exception("pgvector schema migration failed")
 
 
+_PG_SERIAL_TABLES = (
+    "shops",
+    "subscriptions",
+    "products",
+    "conversations",
+    "messages",
+    "analytics_events",
+    "orders",
+    "password_reset_tokens",
+    "email_verification_tokens",
+    "email_sent_log",
+)
+
+
+def _heal_pg_sequences(conn) -> None:
+    """Bump every known table's id sequence to MAX(id)+1.
+
+    Postgres BIGSERIAL sequences fall behind reality when rows are inserted
+    with explicit ids (backup restore, seed data, manual SQL). Next default
+    INSERT then collides on products_pkey. This idempotent fix-up runs on
+    every startup so the issue self-heals.
+    """
+    for table in _PG_SERIAL_TABLES:
+        try:
+            conn.execute(
+                f"""
+                SELECT setval(
+                  pg_get_serial_sequence(%s, 'id'),
+                  COALESCE((SELECT MAX(id) FROM {table}), 0) + 1,
+                  false
+                )
+                """,
+                (table,),
+            )
+        except Exception:
+            log.exception("heal sequence failed for %s", table)
+
+
 def ensure_app_tables() -> None:
     conn = get_db()
     try:
@@ -320,6 +358,7 @@ def ensure_app_tables() -> None:
                     UNIQUE (shop_id, kind)
                 )
             """)
+            _heal_pg_sequences(conn)
             # If you have pre-existing shops at deploy time, grandfather them ONCE
             # with: UPDATE shops SET email_verified = TRUE WHERE created_at < NOW();
             # New signups go through verify-email automatically.
