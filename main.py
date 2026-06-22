@@ -70,7 +70,8 @@ app.include_router(sync_router)
 async def landing_page():
     index = LANDING_DIR / "index.html"
     if index.exists():
-        return HTMLResponse(content=index.read_text(encoding="utf-8"))
+        from asset_versioning import add_cache_bust
+        return HTMLResponse(content=add_cache_bust(index.read_text(encoding="utf-8")))
     return RedirectResponse(url="/shop", status_code=302)
 
 

@@ -339,7 +339,9 @@ _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "
 async def dashboard_page():
     if not DASHBOARD_INDEX.exists():
         return HTMLResponse("<h1>Dashboard coming soon</h1>")
-    return HTMLResponse(DASHBOARD_INDEX.read_text(encoding="utf-8"), headers=_NO_CACHE)
+    from asset_versioning import add_cache_bust
+    html = add_cache_bust(DASHBOARD_INDEX.read_text(encoding="utf-8"))
+    return HTMLResponse(html, headers=_NO_CACHE)
 
 
 @router.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)

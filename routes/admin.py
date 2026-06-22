@@ -79,7 +79,9 @@ def _check_admin_rate(ip: str) -> None:
 async def admin_page():
     if not is_admin_configured():
         raise HTTPException(404, "Not found")
-    return HTMLResponse(ADMIN_INDEX.read_text(encoding="utf-8"), headers=_NO_CACHE)
+    from asset_versioning import add_cache_bust
+    html = add_cache_bust(ADMIN_INDEX.read_text(encoding="utf-8"))
+    return HTMLResponse(html, headers=_NO_CACHE)
 
 
 @router.post("/login")
