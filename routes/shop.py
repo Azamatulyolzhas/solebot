@@ -66,6 +66,17 @@ _SANDBOX_MAX = 30
 _SANDBOX_WINDOW = 3600
 
 
+def _real_client_ip(request: Request) -> str:
+    """Behind a reverse proxy (Railway), request.client.host is the proxy IP.
+    Trust the leftmost X-Forwarded-For so the rate limit keys on the real client."""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    return request.client.host if request.client else "unknown"
+
+
 def _check_login_rate(ip: str) -> None:
     now = _time.time()
     attempts = [t for t in _login_attempts[ip] if now - t < _LOGIN_WINDOW]
@@ -165,7 +176,7 @@ async def shop_register(body: RegisterRequest, request: Request):
     """Public self-service registration. Auto-provisions an active shop + 14-day trial and returns a JWT
     so the dashboard logs in immediately (no manual approval step)."""
     try:
-        _check_register_rate(request.client.host if request.client else "unknown")
+        _check_register_rate(_real_client_ip(request))
         if len(body.password) < 8:
             raise HTTPException(400, "Пароль должен быть не менее 8 символов")
         shop_name = body.shop_name.strip()
@@ -250,7 +261,7 @@ async def dashboard_redirect():
 
 @router.post("/login")
 async def shop_login(body: LoginRequest, request: Request):
-    _check_login_rate(request.client.host if request.client else "unknown")
+    _check_login_rate(_real_client_ip(request))
     shop = get_shop_by_email(body.email)
     if not shop:
         raise HTTPException(401, "Неверный email или пароль")

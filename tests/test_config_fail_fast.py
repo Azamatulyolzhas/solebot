@@ -107,6 +107,18 @@ class TestProductionFailFast:
                 "ALLOWED_ORIGINS": "https://x",
             })
 
+    def test_explicit_staging_cannot_disable_railway_production_failfast(self):
+        """Audit follow-up F3 — fail-safe: if RAILWAY_ENVIRONMENT_NAME=production,
+        IS_PRODUCTION stays True even if operator sets ENVIRONMENT=staging."""
+        with pytest.raises(RuntimeError):
+            _reload_config_with({
+                "ENVIRONMENT": "staging",
+                "RAILWAY_ENVIRONMENT_NAME": "production",
+                "JWT_SECRET": None,
+                "ADMIN_PASSWORD_HASH": "h",
+                "ALLOWED_ORIGINS": "https://x",
+            })
+
 
 class TestDevelopmentTolerance:
 

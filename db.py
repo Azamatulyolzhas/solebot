@@ -62,7 +62,11 @@ class _PooledConnection:
     """Mimic the plain psycopg.Connection API but `.close()` returns the
     underlying connection to the pool instead of dropping it. This lets every
     existing caller (fetch_all, execute_write, etc.) keep its
-    `conn = get_db(); try: ...; finally: conn.close()` pattern unchanged."""
+    `conn = get_db(); try: ...; finally: conn.close()` pattern unchanged.
+
+    Also supports `with get_db() as conn:` and falls back to .close() on GC,
+    so a forgotten finally block can't permanently leak a pool slot.
+    """
 
     def __init__(self, pool, conn):
         self._pool = pool
@@ -71,6 +75,21 @@ class _PooledConnection:
 
     def __getattr__(self, name):
         return getattr(self._conn, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+    def __del__(self):
+        # Last-resort safety net for a forgotten conn.close(). Idempotent
+        # via the _returned flag, so a normal close() before GC is unaffected.
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def close(self) -> None:
         if self._returned:

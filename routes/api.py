@@ -26,6 +26,20 @@ _WEB_CHAT_MAX = 30
 _WEB_CHAT_WINDOW = 60
 
 
+def _real_client_ip(request: Request) -> str:
+    """Behind Railway / any reverse proxy, request.client.host is the proxy IP — all
+    user traffic collapses onto one bucket. We trust the leftmost X-Forwarded-For
+    entry because the Railway edge sets it. (If the app ever runs without a
+    trusted proxy in front, this lets the client spoof — accept that risk for
+    now since Railway is the deployment target.)"""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    return request.client.host if request.client else "unknown"
+
+
 def _check_web_chat_rate(ip: str) -> None:
     now = _time.time()
     attempts = [t for t in _web_chat_attempts[ip] if now - t < _WEB_CHAT_WINDOW]
@@ -92,7 +106,7 @@ async def health():
 
 @router.post("/api/chat", response_model=ChatResponse)
 async def web_chat(body: ChatRequest, request: Request):
-    _check_web_chat_rate(request.client.host if request.client else "unknown")
+    _check_web_chat_rate(_real_client_ip(request))
     user_id = f"web_{body.session_id}"
     # Public web widget targets the default shop — pass it explicitly so resolve_shop_id
     # never has to silently fall through to the default (P3 item 3 — fail-closed).

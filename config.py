@@ -5,12 +5,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ENVIRONMENT = (
-    os.getenv("ENVIRONMENT")
-    or os.getenv("RAILWAY_ENVIRONMENT_NAME")
-    or "development"
-).strip().lower()
-IS_PRODUCTION = ENVIRONMENT in ("production", "prod")
+_explicit_env = (os.getenv("ENVIRONMENT") or "").strip().lower()
+_railway_env = (os.getenv("RAILWAY_ENVIRONMENT_NAME") or "").strip().lower()
+ENVIRONMENT = _explicit_env or _railway_env or "development"
+# Fail-safe: production guards activate if EITHER signal says prod. Stops an
+# operator from accidentally disabling fail-fast by setting ENVIRONMENT=staging
+# on a Railway production deploy.
+IS_PRODUCTION = (
+    _explicit_env in ("production", "prod")
+    or _railway_env in ("production", "prod")
+)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
