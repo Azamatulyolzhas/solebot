@@ -1,7 +1,7 @@
 import logging
 import re
 
-from config import DEFAULT_SHOP_NAME, DEFAULT_SHOP_SLUG, USE_POSTGRES
+from config import DEFAULT_SHOP_NAME, DEFAULT_SHOP_SLUG, EMAIL_VERIFICATION_ENABLED, USE_POSTGRES
 from db import db_placeholder, execute_write, fetch_all, fetch_one_value
 
 log = logging.getLogger(__name__)
@@ -146,11 +146,15 @@ def create_active_shop_with_trial(
     days = int(trial_days) if trial_days and int(trial_days) > 0 else TRIAL_DAYS_DEFAULT
     conn = get_db()
     try:
+        # When the email-verification gate is off (kill-switch), new shops are
+        # created already-verified so they can bot-connect/import immediately.
+        pg_verified = "FALSE" if EMAIL_VERIFICATION_ENABLED else "TRUE"
+        sqlite_verified = 0 if EMAIL_VERIFICATION_ENABLED else 1
         if USE_POSTGRES:
             cur = conn.execute(
                 f"""
                 INSERT INTO shops (name, slug, owner_email, owner_password_hash, status, email_verified)
-                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, FALSE)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {pg_verified})
                 RETURNING id
                 """,
                 (name, slug, email, password_hash, "active"),
@@ -159,7 +163,7 @@ def create_active_shop_with_trial(
             shop_id = row["id"] if row else None
         else:
             cur = conn.execute(
-                f"INSERT INTO shops (name, slug, owner_email, owner_password_hash, status, email_verified) VALUES ({ph},{ph},{ph},{ph},{ph},0)",
+                f"INSERT INTO shops (name, slug, owner_email, owner_password_hash, status, email_verified) VALUES ({ph},{ph},{ph},{ph},{ph},{sqlite_verified})",
                 (name, slug, email, password_hash, "active"),
             )
             shop_id = cur.lastrowid

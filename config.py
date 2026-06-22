@@ -52,6 +52,14 @@ if not JWT_SECRET and not IS_PRODUCTION:
 JWT_ALGORITHM = "HS256"
 JWT_TTL_DAYS = int(os.getenv("JWT_TTL_DAYS", "30"))
 
+# Email verification kill-switch. Default OFF until Resend domain is verified
+# and we're ready to gate bot-connect / catalog import on a real email click.
+# Set EMAIL_VERIFICATION_ENABLED=true in env to re-enable the gate; new signups
+# will then start with email_verified=FALSE again.
+EMAIL_VERIFICATION_ENABLED = os.getenv(
+    "EMAIL_VERIFICATION_ENABLED", "false"
+).strip().lower() in ("true", "1", "yes", "on")
+
 # Subscription plans (shown in shop dashboard)
 PAYMENT_KASPI = os.getenv("PAYMENT_KASPI", "")        # Kaspi Gold number
 PAYMENT_DETAILS = os.getenv("PAYMENT_DETAILS", "")    # Extra payment instructions

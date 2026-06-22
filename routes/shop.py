@@ -127,8 +127,14 @@ def get_current_shop(credentials: HTTPAuthorizationCredentials = Depends(_bearer
 def require_verified_shop(shop: dict = Depends(get_current_shop)) -> dict:
     """Wraps get_current_shop. Read-only endpoints can stay on get_current_shop;
     anything that hands out a sync key, connects an external account, or burns
-    quota must go through this so unverified emails can't be weaponised."""
-    if not shop.get("email_verified"):
+    quota must go through this so unverified emails can't be weaponised.
+
+    When config.EMAIL_VERIFICATION_ENABLED is False (default), this is a no-op
+    — every authenticated shop passes through. Re-enable by setting
+    EMAIL_VERIFICATION_ENABLED=true in env once Resend domain is verified."""
+    from config import EMAIL_VERIFICATION_ENABLED
+
+    if EMAIL_VERIFICATION_ENABLED and not shop.get("email_verified"):
         raise HTTPException(
             403,
             "Подтвердите email — мы отправили письмо на " + (shop.get("owner_email") or "ваш адрес"),
@@ -209,16 +215,16 @@ async def shop_register(body: RegisterRequest, request: Request):
             raise HTTPException(500, "Не удалось создать магазин, попробуйте позже")
         subscription = get_shop_subscription_detail(shop_id)
         send_shop_welcome(shop_name, body.email, subscription)
-        # Issue verification token + email immediately. The JWT we return below
-        # lets the owner log in and browse the dashboard, but require_verified_shop
-        # blocks bot-connect / catalog import / sandbox / etc. until they click
-        # the link.
-        verify_token = create_email_verification_token(shop_id)
-        if verify_token:
-            try:
-                send_email_verification(body.email, verify_token)
-            except Exception:
-                log.exception("send_email_verification failed shop=%s", shop_id)
+        # Verification email only when the gate is enabled — no point spamming
+        # owners with a "confirm email" link they're not required to click.
+        from config import EMAIL_VERIFICATION_ENABLED
+        if EMAIL_VERIFICATION_ENABLED:
+            verify_token = create_email_verification_token(shop_id)
+            if verify_token:
+                try:
+                    send_email_verification(body.email, verify_token)
+                except Exception:
+                    log.exception("send_email_verification failed shop=%s", shop_id)
         try:
             log_analytics_event("dashboard", "signup_completed", {"email": body.email}, shop_id=shop_id)
         except Exception:

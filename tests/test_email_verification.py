@@ -35,20 +35,32 @@ def _make_client(shop_override=None):
 
 class TestRequireVerifiedShop:
 
-    def test_unverified_shop_blocked(self):
+    def test_unverified_shop_blocked_when_gate_on(self, monkeypatch):
+        import config as _cfg
+        monkeypatch.setattr(_cfg, "EMAIL_VERIFICATION_ENABLED", True)
         unverified = {"id": 1, "name": "S", "status": "active",
                       "owner_email": "x@y.com", "email_verified": False}
         with pytest.raises(Exception) as exc:
             require_verified_shop(unverified)
-        # FastAPI HTTPException carries .status_code
         assert getattr(exc.value, "status_code", None) == 403
         assert "email" in str(exc.value.detail).lower()
 
-    def test_verified_shop_passes(self):
+    def test_verified_shop_passes(self, monkeypatch):
+        import config as _cfg
+        monkeypatch.setattr(_cfg, "EMAIL_VERIFICATION_ENABLED", True)
         verified = {"id": 1, "name": "S", "status": "active",
                     "owner_email": "x@y.com", "email_verified": True}
         result = require_verified_shop(verified)
         assert result is verified
+
+    def test_unverified_shop_passes_when_gate_off(self, monkeypatch):
+        """Kill-switch (default) — gate is a no-op even for unverified shops."""
+        import config as _cfg
+        monkeypatch.setattr(_cfg, "EMAIL_VERIFICATION_ENABLED", False)
+        unverified = {"id": 1, "name": "S", "status": "active",
+                      "owner_email": "x@y.com", "email_verified": False}
+        result = require_verified_shop(unverified)
+        assert result is unverified
 
 
 class TestVerifyEmailEndpoint:
@@ -112,10 +124,11 @@ class TestResendVerification:
 
 class TestGatedEndpoints:
     """Smoke-test that one representative gated endpoint actually rejects
-    an unverified shop. The handler itself is mocked away — we only care
-    about the dependency."""
+    an unverified shop WHEN the gate is enabled."""
 
-    def test_sandbox_chat_rejects_unverified(self):
+    def test_sandbox_chat_rejects_unverified_when_gate_on(self, monkeypatch):
+        import config as _cfg
+        monkeypatch.setattr(_cfg, "EMAIL_VERIFICATION_ENABLED", True)
         unverified = {"id": 1, "owner_email": "x@y.com",
                       "email_verified": False, "status": "active", "name": "S"}
         app = FastAPI()
