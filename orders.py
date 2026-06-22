@@ -39,6 +39,10 @@ def create_order(
     try:
         shop_id = resolve_shop_id(shop_id)
         ph = db_placeholder()
+        # Funnel: snapshot whether this shop had any prior order BEFORE insert.
+        is_first = (fetch_one_value(
+            f"SELECT COUNT(*) FROM orders WHERE shop_id = {ph}", (shop_id,)
+        ) or 0) == 0
         row = execute_write(
             f"""
             INSERT INTO orders
@@ -50,17 +54,29 @@ def create_order(
             fetch_one=True,
         ) if USE_POSTGRES else None
         if USE_POSTGRES:
-            return row["id"] if row else None
+            new_id = row["id"] if row else None
+        else:
+            execute_write(
+                f"""
+                INSERT INTO orders
+                    (shop_id, channel, external_user_id, customer_name, customer_phone, product_interest, status)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+                """,
+                (shop_id, channel, external_user_id, customer_name, customer_phone, product_interest, "new"),
+            )
+            new_id = fetch_one_value("SELECT MAX(id) FROM orders")
 
-        execute_write(
-            f"""
-            INSERT INTO orders
-                (shop_id, channel, external_user_id, customer_name, customer_phone, product_interest, status)
-            VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
-            """,
-            (shop_id, channel, external_user_id, customer_name, customer_phone, product_interest, "new"),
-        )
-        return fetch_one_value("SELECT MAX(id) FROM orders")
+        if new_id and is_first:
+            try:
+                from conversations import log_analytics_event
+                log_analytics_event(
+                    channel, "first_lead",
+                    {"order_id": new_id, "product": product_interest},
+                    shop_id=shop_id,
+                )
+            except Exception:
+                log.exception("first_lead funnel event failed for shop %s", shop_id)
+        return new_id
     except Exception as e:
         log.error(f"Create order failed: {e}")
         return None

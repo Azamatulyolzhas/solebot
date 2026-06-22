@@ -2,6 +2,7 @@ const TAB_TITLES = {
   overview:     ["Обзор",      "Аналитика платформы и магазинов"],
   applications: ["Заявки",     "Новые магазины ожидают активации"],
   shops:        ["Магазины",   "Все зарегистрированные магазины"],
+  funnel:       ["Воронка",    "Прохождение этапов активации"],
   email:        ["Email",      "Домен Resend — письма на любые адреса клиентов"],
 };
 
@@ -678,6 +679,7 @@ async function loadAll() {
   const tasks = [
     loadStats(),
     loadShops(),
+    loadFunnel(),
   ];
   const results = await Promise.allSettled(tasks);
   const failed  = results.filter((r) => r.status === "rejected");
@@ -686,6 +688,47 @@ async function loadAll() {
     showToast(msg, "error");
   }
   renderOverview();
+}
+
+async function loadFunnel() {
+  const target = document.getElementById("funnel-content");
+  if (!target) return;
+  try {
+    const data = await api("/admin/funnel");
+    renderFunnel(data);
+  } catch (err) {
+    target.innerHTML = `<p class="muted">${escapeHtml(err.message || "Ошибка")}</p>`;
+  }
+}
+
+function renderFunnel(data) {
+  const baseline = document.getElementById("funnel-baseline");
+  if (baseline) baseline.textContent = `всего магазинов: ${data.totals?.shops ?? 0}`;
+  const stages = data.stages || [];
+  const max = Math.max(1, ...stages.map(s => s.baseline || s.count || 0));
+  const rows = stages.map((s, i) => {
+    const cnt = s.count || 0;
+    const widthPct = Math.round(cnt / max * 100);
+    const conv = i === 0 ? "" : (() => {
+      const prev = stages[i - 1].count || 0;
+      const p = prev > 0 ? Math.round(cnt / prev * 100) : 0;
+      return `<span class="muted small" style="margin-left:8px">→ ${p}% от пред.</span>`;
+    })();
+    return `<div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span><strong>${escapeHtml(s.label)}</strong>${conv}</span>
+        <span class="mono">${cnt} / ${s.baseline || 0}</span>
+      </div>
+      <div style="height:10px;background:var(--line2);border-radius:999px;overflow:hidden">
+        <div style="height:100%;width:${widthPct}%;background:var(--accent);border-radius:999px"></div>
+      </div>
+    </div>`;
+  }).join("");
+  const c = data.conversion_pct || {};
+  const summary = `<div class="muted small" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
+    Итог: <strong>${c.lead_from_signup ?? 0}%</strong> signup → first_lead.
+  </div>`;
+  document.getElementById("funnel-content").innerHTML = rows + summary;
 }
 
 async function uploadCsv(path) {

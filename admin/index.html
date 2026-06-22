@@ -45,6 +45,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11a1 1 0 001 1h14a1 1 0 001-1V9"/><path d="M9 21V13h6v8"/></svg>
           Магазины
         </button>
+        <button class="nav-item" data-tab="funnel">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Воронка
+        </button>
         <button class="nav-item" data-tab="email">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>
           Email
@@ -147,6 +151,23 @@
               </tr></thead>
               <tbody id="shops-body"></tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ВОРОНКА -->
+      <section id="tab-funnel" class="tab">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Воронка активации</h2>
+            <span id="funnel-baseline" class="muted"></span>
+          </div>
+          <div class="panel-body">
+            <p class="muted small" style="margin:0 0 16px 0">
+              Сколько магазинов добрались до каждого этапа после регистрации.
+              Считаются уникальные shop_id с зафиксированным событием.
+            </p>
+            <div id="funnel-content">Загрузка…</div>
           </div>
         </div>
       </section>

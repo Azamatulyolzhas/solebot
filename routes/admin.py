@@ -178,6 +178,50 @@ async def admin_applications(request: Request):
     return {"items": list_pending_shops()}
 
 
+@router.get("/funnel")
+async def admin_funnel(request: Request):
+    """Activation funnel: distinct shops at each stage + conversion vs previous."""
+    require_admin(request)
+    from db import db_placeholder, fetch_one_value
+
+    ph = db_placeholder()
+    total_shops = fetch_one_value("SELECT COUNT(*) FROM shops WHERE status <> 'deleted'") or 0
+
+    def _distinct(event: str) -> int:
+        return fetch_one_value(
+            f"SELECT COUNT(DISTINCT shop_id) FROM analytics_events WHERE event_name = {ph}",
+            (event,),
+        ) or 0
+
+    signups   = _distinct("signup_completed")
+    catalog   = _distinct("products_imported")
+    bots      = _distinct("bot_connected")
+    leads     = _distinct("first_lead")
+
+    # signup_completed only fires on NEW registrations. Pre-existing shops
+    # never emitted it, so report total_shops as the baseline too.
+    baseline = max(total_shops, signups)
+
+    def pct(num: int, denom: int) -> float:
+        return round(num / denom * 100, 1) if denom > 0 else 0.0
+
+    return {
+        "stages": [
+            {"name": "signup",            "label": "Регистрация",      "count": signups, "baseline": baseline},
+            {"name": "catalog_uploaded",  "label": "Каталог загружен", "count": catalog, "baseline": baseline},
+            {"name": "bot_connected",     "label": "Бот подключён",    "count": bots,    "baseline": baseline},
+            {"name": "first_lead",        "label": "Первый лид",       "count": leads,   "baseline": baseline},
+        ],
+        "conversion_pct": {
+            "catalog_from_signup": pct(catalog, baseline),
+            "bot_from_catalog":    pct(bots, catalog),
+            "lead_from_bot":       pct(leads, bots),
+            "lead_from_signup":    pct(leads, baseline),
+        },
+        "totals": {"shops": total_shops},
+    }
+
+
 class ShopStatusPatch(BaseModel):
     status: str  # "active" | "rejected"
 

@@ -193,6 +193,10 @@ async def shop_register(body: RegisterRequest, request: Request):
             raise HTTPException(500, "Не удалось создать магазин, попробуйте позже")
         subscription = get_shop_subscription_detail(shop_id)
         send_shop_welcome(shop_name, body.email, subscription)
+        try:
+            log_analytics_event("dashboard", "signup_completed", {"email": body.email}, shop_id=shop_id)
+        except Exception:
+            log.exception("signup_completed event failed shop=%s", shop_id)
         token = create_shop_token(shop_id)
         return {
             "ok": True,
@@ -724,6 +728,15 @@ async def shop_bot_connect(body: BotConnectRequest, shop: dict = Depends(get_cur
     updated_shop = get_shop_by_id(shop["id"])
     if updated_shop:
         await register_shop_bot(updated_shop)
+
+    try:
+        log_analytics_event(
+            "telegram", "bot_connected",
+            {"bot_username": bot_info.get("username")},
+            shop_id=shop["id"],
+        )
+    except Exception:
+        log.exception("bot_connected event failed shop=%s", shop["id"])
 
     return {
         "ok": True,
