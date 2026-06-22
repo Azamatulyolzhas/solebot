@@ -8,7 +8,7 @@ import routes.shop as shop_route
 from routes.shop import router as shop_router, get_current_shop
 
 
-_FAKE_SHOP = {"id": 11, "name": "Test Shop", "status": "active"}
+_FAKE_SHOP = {"id": 11, "name": "Test Shop", "status": "active", "email_verified": True}
 
 
 def _make_client(shop_override=None):

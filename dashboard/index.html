@@ -200,6 +200,18 @@
     <!-- Content -->
     <div class="content-area">
 
+      <!-- Email verification banner — visible to unverified shops on every tab -->
+      <div id="email-verify-banner" class="email-verify-banner" hidden>
+        <div class="email-verify-banner-text">
+          <strong>Подтвердите email</strong> — мы отправили письмо на <span id="email-verify-banner-addr"></span>.
+          Без подтверждения нельзя подключить Telegram-бота или загрузить каталог.
+        </div>
+        <div class="email-verify-banner-actions">
+          <button id="email-verify-resend" class="btn" type="button">Отправить ещё раз</button>
+          <button id="email-verify-recheck" class="btn secondary" type="button">Я подтвердил</button>
+        </div>
+      </div>
+
       <!-- ═══════════════════════ ОБЗОР ════════════════════════════════════ -->
       <section id="tab-overview" class="tab active">
 

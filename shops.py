@@ -149,8 +149,8 @@ def create_active_shop_with_trial(
         if USE_POSTGRES:
             cur = conn.execute(
                 f"""
-                INSERT INTO shops (name, slug, owner_email, owner_password_hash, status)
-                VALUES ({ph}, {ph}, {ph}, {ph}, {ph})
+                INSERT INTO shops (name, slug, owner_email, owner_password_hash, status, email_verified)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, FALSE)
                 RETURNING id
                 """,
                 (name, slug, email, password_hash, "active"),
@@ -159,7 +159,7 @@ def create_active_shop_with_trial(
             shop_id = row["id"] if row else None
         else:
             cur = conn.execute(
-                f"INSERT INTO shops (name, slug, owner_email, owner_password_hash, status) VALUES ({ph},{ph},{ph},{ph},{ph})",
+                f"INSERT INTO shops (name, slug, owner_email, owner_password_hash, status, email_verified) VALUES ({ph},{ph},{ph},{ph},{ph},0)",
                 (name, slug, email, password_hash, "active"),
             )
             shop_id = cur.lastrowid
@@ -248,7 +248,7 @@ def get_shop_by_id(shop_id: int) -> dict | None:
             f"""SELECT id, name, slug, owner_email, status, tg_token, tg_webhook_secret,
                        owner_telegram_chat_id, owner_telegram_username, groq_system_prompt,
                        groq_api_key, moysklad_token, sync_api_key, bot_role, business_type,
-                       website_url, data_source, created_at
+                       website_url, data_source, email_verified, created_at
                 FROM shops WHERE id = {ph} LIMIT 1""",
             (shop_id,),
         )
@@ -576,6 +576,75 @@ def consume_reset_token(token_id: int) -> None:
     """Mark token as used so it can't be reused."""
     ph = db_placeholder()
     execute_write(f"UPDATE password_reset_tokens SET used = TRUE WHERE id = {ph}", (token_id,))
+
+
+def create_email_verification_token(shop_id: int) -> str | None:
+    """One-time token (24h TTL) for /shop/verify-email."""
+    import secrets
+    token = secrets.token_urlsafe(32)
+    ph = db_placeholder()
+    try:
+        if USE_POSTGRES:
+            execute_write(
+                f"""
+                INSERT INTO email_verification_tokens (shop_id, token, expires_at)
+                VALUES ({ph}, {ph}, NOW() + INTERVAL '24 hours')
+                """,
+                (shop_id, token),
+            )
+        else:
+            execute_write(
+                f"""
+                INSERT INTO email_verification_tokens (shop_id, token, expires_at)
+                VALUES ({ph}, {ph}, datetime('now', '+24 hours'))
+                """,
+                (shop_id, token),
+            )
+        return token
+    except Exception as e:
+        log.error(f"Create email verification token failed: {e}")
+        return None
+
+
+def get_valid_email_verification_token(token: str) -> dict | None:
+    """Return {id, shop_id} if token unused and unexpired, else None."""
+    try:
+        ph = db_placeholder()
+        if USE_POSTGRES:
+            rows = fetch_all(
+                f"""
+                SELECT id, shop_id FROM email_verification_tokens
+                WHERE token = {ph} AND used = FALSE AND expires_at > NOW()
+                LIMIT 1
+                """,
+                (token,),
+            )
+        else:
+            rows = fetch_all(
+                f"""
+                SELECT id, shop_id FROM email_verification_tokens
+                WHERE token = {ph} AND used = 0 AND expires_at > datetime('now')
+                LIMIT 1
+                """,
+                (token,),
+            )
+        return rows[0] if rows else None
+    except Exception as e:
+        log.error(f"Get email verification token failed: {e}")
+        return None
+
+
+def consume_email_verification_token(token_id: int) -> None:
+    ph = db_placeholder()
+    execute_write(f"UPDATE email_verification_tokens SET used = TRUE WHERE id = {ph}", (token_id,))
+
+
+def mark_email_verified(shop_id: int) -> None:
+    ph = db_placeholder()
+    if USE_POSTGRES:
+        execute_write(f"UPDATE shops SET email_verified = TRUE WHERE id = {ph}", (shop_id,))
+    else:
+        execute_write(f"UPDATE shops SET email_verified = 1 WHERE id = {ph}", (shop_id,))
 
 
 class ShopDeleteError(Exception):

@@ -22,6 +22,7 @@ SHOP_EXTRA_COLUMNS = (
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS groq_api_key TEXT",
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_telegram_chat_id TEXT",
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_telegram_username TEXT",
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE",
 )
 
 SUBSCRIPTION_EXTRA_COLUMNS = (
@@ -300,6 +301,19 @@ def ensure_app_tables() -> None:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS email_verification_tokens (
+                    id BIGSERIAL PRIMARY KEY,
+                    shop_id BIGINT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+                    token TEXT NOT NULL UNIQUE,
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    used BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            # If you have pre-existing shops at deploy time, grandfather them ONCE
+            # with: UPDATE shops SET email_verified = TRUE WHERE created_at < NOW();
+            # New signups go through verify-email automatically.
         else:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS shops (
@@ -334,6 +348,7 @@ def ensure_app_tables() -> None:
                 "groq_api_key": "ALTER TABLE shops ADD COLUMN groq_api_key TEXT",
                 "owner_telegram_chat_id": "ALTER TABLE shops ADD COLUMN owner_telegram_chat_id TEXT",
                 "owner_telegram_username": "ALTER TABLE shops ADD COLUMN owner_telegram_username TEXT",
+                "email_verified": "ALTER TABLE shops ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0",
             }
             for column, ddl in sqlite_shop_cols.items():
                 if column not in existing_shop_columns:
@@ -445,6 +460,26 @@ def ensure_app_tables() -> None:
                 "CREATE INDEX IF NOT EXISTS idx_analytics_events_shop_event_time "
                 "ON analytics_events(shop_id, event_name, created_at)"
             )
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    shop_id INTEGER NOT NULL,
+                    token TEXT NOT NULL UNIQUE,
+                    expires_at TIMESTAMP NOT NULL,
+                    used INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS email_verification_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    shop_id INTEGER NOT NULL,
+                    token TEXT NOT NULL UNIQUE,
+                    expires_at TIMESTAMP NOT NULL,
+                    used INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
         migrate_sneakers_to_products(conn)
         drop_legacy_sneakers_table(conn)

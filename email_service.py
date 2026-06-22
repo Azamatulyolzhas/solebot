@@ -104,6 +104,27 @@ def send_shop_rejected(shop_name: str, owner_email: str) -> bool:
     return _send(owner_email, f"Заявка на регистрацию «{shop_name}» отклонена", html)
 
 
+def send_email_verification(owner_email: str, token: str) -> bool:
+    """Sent right after self-service signup. Owner clicks the link to unlock
+    bot-connect, catalog import, MoySklad, sandbox, etc."""
+    verify_url = SHOP_DASHBOARD_URL.rstrip("/") + f"/shop/verify-email?token={token}"
+    html = f"""
+    <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px;">
+      <h2 style="color:#2563eb;">Подтвердите email</h2>
+      <p>Спасибо за регистрацию в Vendly. Чтобы подключить Telegram-бота и загрузить каталог, подтвердите ваш email — нажмите кнопку ниже. Ссылка действительна <strong>24 часа</strong>.</p>
+      <a href="{verify_url}"
+         style="display:inline-block;margin-top:16px;padding:12px 24px;
+                background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">
+        Подтвердить email
+      </a>
+      <p style="margin-top:24px;color:#6b7280;font-size:12px;">
+        Если вы не регистрировались — просто проигнорируйте это письмо.
+      </p>
+    </div>
+    """
+    return _send(owner_email, "Подтвердите email для Vendly", html)
+
+
 def send_password_reset(owner_email: str, reset_token: str) -> bool:
     reset_url = SHOP_DASHBOARD_URL.rstrip("/") + f"/shop?token={reset_token}"
     html = f"""

@@ -23,18 +23,22 @@ from products import (
     update_product,
     validate_product_csv,
 )
-from email_service import send_password_reset, send_shop_welcome
+from email_service import send_email_verification, send_password_reset, send_shop_welcome
 from shops import (
     clear_moysklad_token,
     clear_shop_tg_token,
+    consume_email_verification_token,
     consume_reset_token,
     create_active_shop_with_trial,
+    create_email_verification_token,
     create_password_reset_token,
     generate_sync_api_key,
     get_shop_by_email,
     get_shop_by_id,
     get_shop_subscription_detail,
+    get_valid_email_verification_token,
     get_valid_reset_token,
+    mark_email_verified,
     resolve_data_source,
     save_moysklad_token,
     save_shop_tg_token,
@@ -120,6 +124,18 @@ def get_current_shop(credentials: HTTPAuthorizationCredentials = Depends(_bearer
     return shop
 
 
+def require_verified_shop(shop: dict = Depends(get_current_shop)) -> dict:
+    """Wraps get_current_shop. Read-only endpoints can stay on get_current_shop;
+    anything that hands out a sync key, connects an external account, or burns
+    quota must go through this so unverified emails can't be weaponised."""
+    if not shop.get("email_verified"):
+        raise HTTPException(
+            403,
+            "Подтвердите email — мы отправили письмо на " + (shop.get("owner_email") or "ваш адрес"),
+        )
+    return shop
+
+
 # ── Pydantic schemas ───────────────────────────────────────────────────────────
 
 class RegisterRequest(BaseModel):
@@ -193,6 +209,16 @@ async def shop_register(body: RegisterRequest, request: Request):
             raise HTTPException(500, "Не удалось создать магазин, попробуйте позже")
         subscription = get_shop_subscription_detail(shop_id)
         send_shop_welcome(shop_name, body.email, subscription)
+        # Issue verification token + email immediately. The JWT we return below
+        # lets the owner log in and browse the dashboard, but require_verified_shop
+        # blocks bot-connect / catalog import / sandbox / etc. until they click
+        # the link.
+        verify_token = create_email_verification_token(shop_id)
+        if verify_token:
+            try:
+                send_email_verification(body.email, verify_token)
+            except Exception:
+                log.exception("send_email_verification failed shop=%s", shop_id)
         try:
             log_analytics_event("dashboard", "signup_completed", {"email": body.email}, shop_id=shop_id)
         except Exception:
@@ -230,6 +256,66 @@ async def shop_forgot_password(body: ForgotPasswordRequest):
         if token:
             send_password_reset(body.email, token)
     return {"ok": True, "message": "Если аккаунт существует — письмо отправлено"}
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+@router.post("/verify-email")
+async def shop_verify_email(body: VerifyEmailRequest):
+    """Public endpoint — the link in the verification email POSTs here."""
+    token_row = get_valid_email_verification_token(body.token)
+    if not token_row:
+        raise HTTPException(400, "Ссылка недействительна или истекла")
+    mark_email_verified(token_row["shop_id"])
+    consume_email_verification_token(token_row["id"])
+    return {"ok": True}
+
+
+@router.post("/resend-verification")
+async def shop_resend_verification(shop: dict = Depends(get_current_shop)):
+    """Authenticated — for the 'Send again' button in the dashboard banner.
+    Only useful for unverified shops; no-op (but returns ok) for already-verified."""
+    if shop.get("email_verified"):
+        return {"ok": True, "already_verified": True}
+    token = create_email_verification_token(shop["id"])
+    if token and shop.get("owner_email"):
+        try:
+            send_email_verification(shop["owner_email"], token)
+        except Exception:
+            log.exception("Resend verification email failed shop=%s", shop["id"])
+    return {"ok": True}
+
+
+@router.get("/verify-email", response_class=HTMLResponse, include_in_schema=False)
+async def shop_verify_email_landing(token: str = ""):
+    """Tiny inline page that POSTs the token then bounces to /shop on success.
+    Saves us from having to add a separate frontend route."""
+    safe_token = (token or "").replace('"', "").replace("\\", "")
+    return HTMLResponse(f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<title>Подтверждение email</title>
+<style>body{{font-family:sans-serif;padding:48px;text-align:center;color:#0d0d0d}}
+.msg{{font-size:18px;margin-top:24px}}</style></head><body>
+<h1>Подтверждение email</h1><div id="msg" class="msg">Проверяем ссылку…</div>
+<script>
+fetch("/shop/verify-email", {{
+  method: "POST",
+  headers: {{ "Content-Type": "application/json" }},
+  body: JSON.stringify({{ token: "{safe_token}" }})
+}}).then(async r => {{
+  const m = document.getElementById("msg");
+  if (r.ok) {{
+    m.textContent = "Email подтверждён. Перенаправляем в кабинет…";
+    setTimeout(() => location.href = "/shop", 1500);
+  }} else {{
+    const d = await r.json().catch(() => ({{}}));
+    m.textContent = d.detail || "Ссылка недействительна или истекла";
+  }}
+}}).catch(() => {{
+  document.getElementById("msg").textContent = "Сетевая ошибка. Попробуйте ещё раз.";
+}});
+</script></body></html>""")
 
 
 @router.post("/reset-password")
@@ -289,6 +375,7 @@ async def shop_me(shop: dict = Depends(get_current_shop)):
         "slug": shop["slug"],
         "status": shop.get("status", "active"),
         "owner_email": shop["owner_email"],
+        "email_verified": bool(shop.get("email_verified")),
         "groq_system_prompt": shop.get("groq_system_prompt") or "",
         "bot_role": shop.get("bot_role") or "",
         "business_type": shop.get("business_type") or "",
@@ -496,7 +583,7 @@ async def shop_export(shop: dict = Depends(get_current_shop)):
 
 
 @router.post("/import")
-async def shop_import(file: UploadFile = File(...), replace: bool = False, shop: dict = Depends(get_current_shop)):
+async def shop_import(file: UploadFile = File(...), replace: bool = False, shop: dict = Depends(require_verified_shop)):
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(400, "Upload a CSV file")
     content = await file.read()
@@ -510,7 +597,7 @@ async def shop_import(file: UploadFile = File(...), replace: bool = False, shop:
 
 
 @router.post("/import-preview")
-async def shop_import_preview(file: UploadFile = File(...), shop: dict = Depends(get_current_shop)):
+async def shop_import_preview(file: UploadFile = File(...), shop: dict = Depends(require_verified_shop)):
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(400, "Upload a CSV file")
     content = await file.read()
@@ -590,7 +677,7 @@ async def shop_subscription(shop: dict = Depends(get_current_shop)):
 
 
 @router.post("/sandbox-chat")
-async def shop_sandbox_chat(body: SandboxChatRequest, shop: dict = Depends(get_current_shop)):
+async def shop_sandbox_chat(body: SandboxChatRequest, shop: dict = Depends(require_verified_shop)):
     """Owner-facing dry-run. Hits Groq with the shop's own catalog & API key
     but skips quota, persistence, analytics. Per-shop limit: 30 reqs/hour."""
     from ai import sandbox_reply
@@ -630,7 +717,7 @@ class MoyskladTokenRequest(BaseModel):
 
 
 @router.post("/moysklad-connect")
-async def shop_moysklad_connect(body: MoyskladTokenRequest, shop: dict = Depends(get_current_shop)):
+async def shop_moysklad_connect(body: MoyskladTokenRequest, shop: dict = Depends(require_verified_shop)):
     """Save МойСклад API token and import full catalog."""
     from moysklad import sync_moysklad_catalog
 
@@ -648,7 +735,7 @@ async def shop_moysklad_connect(body: MoyskladTokenRequest, shop: dict = Depends
 
 
 @router.post("/moysklad-sync")
-async def shop_moysklad_sync(replace: bool = False, shop: dict = Depends(get_current_shop)):
+async def shop_moysklad_sync(replace: bool = False, shop: dict = Depends(require_verified_shop)):
     """Re-import catalog from МойСклад. replace=true removes products not in МойСклад."""
     from moysklad import sync_moysklad_catalog
 
@@ -663,13 +750,13 @@ async def shop_moysklad_sync(replace: bool = False, shop: dict = Depends(get_cur
 
 
 @router.delete("/moysklad-connect")
-async def shop_moysklad_disconnect(shop: dict = Depends(get_current_shop)):
+async def shop_moysklad_disconnect(shop: dict = Depends(require_verified_shop)):
     clear_moysklad_token(shop["id"])
     return {"ok": True}
 
 
 @router.post("/sync-api-key")
-async def shop_generate_api_key(shop: dict = Depends(get_current_shop)):
+async def shop_generate_api_key(shop: dict = Depends(require_verified_shop)):
     """Generate (or regenerate) a sync API key for this shop."""
     key = generate_sync_api_key(shop["id"])
     return {"ok": True, "api_key": key}
@@ -680,7 +767,7 @@ class BotConnectRequest(BaseModel):
 
 
 @router.post("/bot-connect")
-async def shop_bot_connect(body: BotConnectRequest, shop: dict = Depends(get_current_shop)):
+async def shop_bot_connect(body: BotConnectRequest, shop: dict = Depends(require_verified_shop)):
     """Validate Telegram token, register webhook, save to DB."""
     import secrets
     import httpx
@@ -747,7 +834,7 @@ async def shop_bot_connect(body: BotConnectRequest, shop: dict = Depends(get_cur
 
 
 @router.post("/bot-test-message")
-async def shop_bot_test_message(shop: dict = Depends(get_current_shop)):
+async def shop_bot_test_message(shop: dict = Depends(require_verified_shop)):
     """Send a smoke-test message to the owner's Telegram using the connected bot.
 
     Lets the owner confirm at registration time that token + chat_id are wired up correctly,
@@ -784,7 +871,7 @@ async def shop_bot_test_message(shop: dict = Depends(get_current_shop)):
 
 
 @router.delete("/bot-connect")
-async def shop_bot_disconnect(shop: dict = Depends(get_current_shop)):
+async def shop_bot_disconnect(shop: dict = Depends(require_verified_shop)):
     """Remove Telegram bot from this shop."""
     from telegram_bot import shop_bots
     secret = shop.get("tg_webhook_secret")

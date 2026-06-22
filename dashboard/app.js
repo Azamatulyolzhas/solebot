@@ -738,6 +738,46 @@ function renderProfile(shop) {
 }
 
 // ── Sidebar plan card ──────────────────────────────────────────────────────────
+function renderEmailVerifyBanner(me) {
+  const banner = document.getElementById("email-verify-banner");
+  if (!banner) return;
+  if (!me || me.email_verified) {
+    banner.hidden = true;
+    return;
+  }
+  const addr = document.getElementById("email-verify-banner-addr");
+  if (addr) addr.textContent = me.owner_email || "ваш адрес";
+  banner.hidden = false;
+}
+
+document.getElementById("email-verify-resend")?.addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = "Отправляю…";
+  try {
+    await api("/shop/resend-verification", { method: "POST" });
+    showToast("Письмо отправлено — проверьте почту", "success");
+  } catch (err) {
+    showToast(err.message || "Ошибка", "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
+
+document.getElementById("email-verify-recheck")?.addEventListener("click", async () => {
+  try {
+    currentShop = await api("/shop/me");
+    renderEmailVerifyBanner(currentShop);
+    if (currentShop.email_verified) {
+      showToast("Email подтверждён ✓", "success");
+    } else {
+      showToast("Пока не подтверждён — нажмите на ссылку в письме", "info");
+    }
+  } catch (err) { showToast(err.message, "error"); }
+});
+
 function renderTrialCountdown(sub) {
   const el = document.getElementById("trial-countdown");
   if (!el) return;
@@ -1130,6 +1170,7 @@ async function loadAll() {
       Object.assign(document.createElement("a"), { href: url, download: "catalog.csv" }).click();
     };
     renderStats(stats);
+    renderEmailVerifyBanner(me);
     renderSetupChecklist(me, stats);
     // Overview extras
     renderOverviewMiniChart(analytics);
