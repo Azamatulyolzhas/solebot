@@ -3,230 +3,338 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SaleBot — Мой кабинет</title>
-  <link rel="stylesheet" href="/dashboard/static/styles.css?v=10">
+  <title>SaleBot — Кабинет</title>
+  <link rel="stylesheet" href="/dashboard/static/styles.css?v=25">
 </head>
 <body>
 
-  <!-- LOGIN -->
-  <div id="login-screen" class="login-screen hidden">
-    <form id="login-form" class="login-card">
-      <div class="login-logo">
-        <span class="logo-mark">S</span>
-        <span>SaleBot</span>
-      </div>
-      <h2>Войти в кабинет</h2>
-      <p class="muted">Управляйте своим магазином и ботом</p>
-      <label>Email
-        <input type="email" id="email-input" placeholder="you@example.com" required autocomplete="email">
-      </label>
-      <label>Пароль
-        <input type="password" id="password-input" placeholder="••••••••" required autocomplete="current-password">
-      </label>
-      <button type="submit" class="btn-accent">Войти</button>
-      <p id="login-error" class="error-msg hidden"></p>
-      <p class="muted center" style="font-size:14px">
-        <button type="button" id="show-forgot" class="link-btn">Забыл пароль</button>
-      </p>
-      <p class="muted center" style="font-size:14px">
-        Нет аккаунта? <button type="button" id="show-register" class="link-btn">Подать заявку</button>
-      </p>
-    </form>
-  </div>
+<!-- ═══════════════════════════════ LOGIN ═══════════════════════════════════ -->
+<div id="login-screen" class="login-screen hidden">
+  <form id="login-form" class="login-card">
+    <div class="login-logo">
+      <div class="logo-mark"></div>
+      <span>SaleBot</span>
+    </div>
+    <h2>Войти в кабинет</h2>
+    <p class="muted">Управляйте магазином и ИИ-ботом</p>
+    <label>Email
+      <input type="email" id="email-input" placeholder="you@example.com" required autocomplete="email">
+    </label>
+    <label>Пароль
+      <input type="password" id="password-input" placeholder="••••••••" required autocomplete="current-password">
+    </label>
+    <button type="submit" class="btn-accent">Войти</button>
+    <p id="login-error" class="error-msg hidden"></p>
+    <p class="muted center small">
+      <button type="button" id="show-forgot" class="link-btn">Забыл пароль</button>
+    </p>
+    <p class="muted center small">
+      Нет аккаунта? <button type="button" id="show-register" class="link-btn">Подать заявку</button>
+    </p>
+  </form>
+</div>
 
-  <!-- FORGOT PASSWORD -->
-  <div id="forgot-screen" class="login-screen hidden">
-    <form id="forgot-form" class="login-card" method="post" action="javascript:void(0)">
-      <div class="login-logo">
-        <span class="logo-mark">S</span>
-        <span>SaleBot</span>
-      </div>
-      <h2>Восстановление пароля</h2>
-      <p class="muted">Введите email — пришлём ссылку для сброса</p>
-      <label>Email
-        <input type="email" id="forgot-email" placeholder="you@example.com" required autocomplete="email">
-      </label>
-      <button type="submit" class="btn-accent">Отправить ссылку</button>
-      <p id="forgot-error" class="error-msg hidden"></p>
-      <p id="forgot-success" class="success-msg hidden"></p>
-      <p class="muted center" style="font-size:14px">
-        <button type="button" id="show-login-from-forgot" class="link-btn">← Назад ко входу</button>
-      </p>
-    </form>
-  </div>
+<!-- ═══════════════════════════ FORGOT PASSWORD ══════════════════════════════ -->
+<div id="forgot-screen" class="login-screen hidden">
+  <form id="forgot-form" class="login-card" action="javascript:void(0)">
+    <div class="login-logo">
+      <div class="logo-mark"></div>
+      <span>SaleBot</span>
+    </div>
+    <h2>Восстановление пароля</h2>
+    <p class="muted">Введите email — пришлём ссылку для сброса</p>
+    <label>Email
+      <input type="email" id="forgot-email" placeholder="you@example.com" required autocomplete="email">
+    </label>
+    <button type="submit" class="btn-accent">Отправить ссылку</button>
+    <p id="forgot-error" class="error-msg hidden"></p>
+    <p id="forgot-success" class="success-msg hidden"></p>
+    <p class="muted center small">
+      <button type="button" id="show-login-from-forgot" class="link-btn">← Назад ко входу</button>
+    </p>
+  </form>
+</div>
 
-  <!-- RESET PASSWORD -->
-  <div id="reset-screen" class="login-screen hidden">
-    <form id="reset-form" class="login-card" method="post" action="javascript:void(0)">
-      <div class="login-logo">
-        <span class="logo-mark">S</span>
-        <span>SaleBot</span>
-      </div>
-      <h2>Новый пароль</h2>
-      <p class="muted">Придумайте надёжный пароль</p>
-      <label>Новый пароль
-        <input type="password" id="reset-password" placeholder="Минимум 8 символов" required autocomplete="new-password">
-      </label>
-      <label>Повторите пароль
-        <input type="password" id="reset-password2" placeholder="Повторите пароль" required autocomplete="new-password">
-      </label>
-      <button type="submit" class="btn-accent">Сохранить пароль</button>
-      <p id="reset-error" class="error-msg hidden"></p>
-      <p id="reset-success" class="success-msg hidden"></p>
-    </form>
-  </div>
+<!-- ════════════════════════════ RESET PASSWORD ══════════════════════════════ -->
+<div id="reset-screen" class="login-screen hidden">
+  <form id="reset-form" class="login-card" action="javascript:void(0)">
+    <div class="login-logo">
+      <div class="logo-mark"></div>
+      <span>SaleBot</span>
+    </div>
+    <h2>Новый пароль</h2>
+    <p class="muted">Придумайте надёжный пароль</p>
+    <label>Новый пароль
+      <input type="password" id="reset-password" placeholder="Минимум 8 символов" required autocomplete="new-password">
+    </label>
+    <label>Повторите пароль
+      <input type="password" id="reset-password2" placeholder="Повторите пароль" required autocomplete="new-password">
+    </label>
+    <button type="submit" class="btn-accent">Сохранить пароль</button>
+    <p id="reset-error" class="error-msg hidden"></p>
+    <p id="reset-success" class="success-msg hidden"></p>
+  </form>
+</div>
 
-  <!-- REGISTER -->
-  <div id="register-screen" class="login-screen hidden">
-    <form id="register-form" class="login-card">
-      <div class="login-logo">
-        <span class="logo-mark">S</span>
-        <span>SaleBot</span>
-      </div>
-      <h2>Подать заявку</h2>
-      <p class="muted">После проверки мы активируем ваш магазин</p>
-      <label>Название магазина
-        <input type="text" id="reg-name" placeholder="Название магазина" required>
-      </label>
-      <label>Email
-        <input type="email" id="reg-email" placeholder="email@example.com" required autocomplete="email">
-      </label>
-      <label>Пароль
-        <input type="password" id="reg-password" placeholder="Минимум 8 символов" required autocomplete="new-password">
-      </label>
-      <label class="terms-check">
-        <input type="checkbox" id="reg-terms" required>
-        <span>Я принимаю <a href="/legal/offer" target="_blank" rel="noopener">оферту</a> и <a href="/legal/privacy" target="_blank" rel="noopener">политику конфиденциальности</a></span>
-      </label>
-      <button type="submit" class="btn-accent">Отправить заявку</button>
-      <p id="register-error" class="error-msg hidden"></p>
-      <p id="register-success" class="success-msg hidden"></p>
-      <p class="muted center" style="font-size:14px">
-        Уже есть аккаунт? <button type="button" id="show-login" class="link-btn">Войти</button>
-      </p>
-    </form>
-  </div>
+<!-- ════════════════════════════ REGISTER ════════════════════════════════════ -->
+<div id="register-screen" class="login-screen hidden">
+  <form id="register-form" class="login-card">
+    <div class="login-logo">
+      <div class="logo-mark"></div>
+      <span>SaleBot</span>
+    </div>
+    <h2>Подать заявку</h2>
+    <p class="muted">После проверки мы активируем ваш магазин</p>
+    <label>Название магазина
+      <input type="text" id="reg-name" placeholder="Название магазина" required>
+    </label>
+    <label>Email
+      <input type="email" id="reg-email" placeholder="email@example.com" required autocomplete="email">
+    </label>
+    <label>Пароль
+      <input type="password" id="reg-password" placeholder="Минимум 8 символов" required autocomplete="new-password">
+    </label>
+    <label class="terms-check">
+      <input type="checkbox" id="reg-terms" required>
+      <span>Я принимаю <a href="/legal/offer" target="_blank" rel="noopener">оферту</a> и <a href="/legal/privacy" target="_blank" rel="noopener">политику конфиденциальности</a></span>
+    </label>
+    <button type="submit" class="btn-accent">Отправить заявку</button>
+    <p id="register-error" class="error-msg hidden"></p>
+    <p id="register-success" class="success-msg hidden"></p>
+    <p class="muted center small">
+      Уже есть аккаунт? <button type="button" id="show-login" class="link-btn">Войти</button>
+    </p>
+  </form>
+</div>
 
-  <!-- APP -->
-  <div id="app" class="app hidden">
-    <aside class="sidebar">
-      <div class="brand">
-        <span class="logo-mark">S</span>
-        <div>
-          <strong id="shop-name-sidebar">Магазин</strong>
-          <small id="shop-email-sidebar" class="muted-sm"></small>
-        </div>
-      </div>
-      <nav class="nav">
-        <button class="nav-item active" data-tab="overview">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-          Обзор
-        </button>
-        <button class="nav-item" data-tab="catalog">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>
-          Каталог
-        </button>
-        <button class="nav-item" data-tab="orders">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-          Заказы
-        </button>
-        <button class="nav-item" data-tab="messages">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          Диалоги
-        </button>
-        <button class="nav-item" data-tab="bot">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
-          Настройки бота
-        </button>
-        <button class="nav-item" data-tab="subscription">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-          Подписка
-        </button>
-        <button class="nav-item" data-tab="profile">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          Профиль
-        </button>
-      </nav>
-      <div class="sidebar-foot">
-        <button id="logout-btn" class="ghost-btn">Выйти</button>
-      </div>
-    </aside>
+<!-- ════════════════════════════════ APP ══════════════════════════════════════ -->
+<div id="app" class="app hidden">
 
-    <main class="content">
-      <header class="topbar">
-        <div>
-          <h1 id="page-title">Обзор</h1>
-          <p id="page-subtitle" class="muted"></p>
-        </div>
-        <div class="topbar-actions">
-          <button id="refresh-btn" class="btn secondary">Обновить</button>
-        </div>
-      </header>
+  <!-- ── SIDEBAR ───────────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
 
-      <!-- ОБЗОР -->
+    <!-- Logo + shop name -->
+    <div class="brand">
+      <div class="logo-mark"></div>
+      <div class="brand-info">
+        <strong id="shop-name-sidebar">Магазин</strong>
+        <small id="shop-email-sidebar"></small>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="nav">
+      <button class="nav-item active" data-tab="overview">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+        Обзор
+      </button>
+      <button class="nav-item" data-tab="catalog">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+        Каталог
+      </button>
+      <button class="nav-item" data-tab="orders">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        Заказы
+      </button>
+      <button class="nav-item" data-tab="messages">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        Диалоги
+      </button>
+      <button class="nav-item" data-tab="analytics">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Аналитика
+      </button>
+      <button class="nav-item" data-tab="bot">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+        Агент
+      </button>
+      <button class="nav-item" data-tab="subscription">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        Подписка
+      </button>
+      <button class="nav-item" data-tab="profile">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Профиль
+      </button>
+    </nav>
+
+    <!-- Subscription mini-card -->
+    <div class="sidebar-plan">
+      <div class="sidebar-plan-title" id="sidebar-plan-name">Тариф TRIAL</div>
+      <div class="sidebar-plan-info" id="sidebar-plan-info">0 / 0 сообщений</div>
+      <div class="sidebar-plan-bar">
+        <div class="sidebar-plan-fill" id="sidebar-plan-fill"></div>
+      </div>
+      <div class="sidebar-plan-action" onclick="document.querySelector('[data-tab=subscription]').click()">Повысить тариф →</div>
+    </div>
+
+    <!-- Logout -->
+    <div class="sidebar-foot">
+      <button id="logout-btn" class="ghost-btn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Выйти
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ──────────────────────────────────────────────────────────────── -->
+  <div class="main-content">
+
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1 id="page-title">Обзор</h1>
+        <p id="page-subtitle" class="muted"></p>
+      </div>
+
+      <div class="topbar-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input placeholder="Поиск…" readonly>
+      </div>
+
+      <div class="topbar-actions">
+        <button id="theme-toggle-btn" class="topbar-btn" title="Переключить тему">☀</button>
+        <button id="refresh-btn" class="topbar-btn" title="Обновить данные">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+        </button>
+        <div class="topbar-avatar" id="topbar-avatar" title="Профиль">МГ</div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <div class="content-area">
+
+      <!-- ═══════════════════════ ОБЗОР ════════════════════════════════════ -->
       <section id="tab-overview" class="tab active">
-        <div id="stats-grid" class="stats-grid"></div>
+
+        <!-- 4 KPI cards with icons -->
+        <div id="stats-grid" class="stats-grid" data-reveal></div>
         <div id="sub-banner"></div>
 
-        <!-- Charts row -->
-        <div class="charts-row">
-          <div class="panel chart-panel">
-            <div class="panel-head"><h2>Сообщений за 14 дней</h2></div>
-            <div class="chart-wrap"><canvas id="chart-messages"></canvas></div>
+        <!-- 2-column: mini activity chart + agent status -->
+        <div class="charts-row" style="grid-template-columns:1.7fr 1fr">
+          <div class="panel chart-panel" data-reveal>
+            <div class="panel-head">
+              <div class="panel-head-left">
+                <h2>Диалоги за неделю</h2>
+                <span class="panel-sub" id="ov-messages-hint">Обработано агентом автоматически</span>
+              </div>
+              <div class="seg-toggle"><span class="on">Неделя</span><span>Месяц</span></div>
+            </div>
+            <div class="chart-wrap"><canvas id="chart-overview-mini"></canvas></div>
           </div>
-          <div class="panel chart-panel">
-            <div class="panel-head"><h2>Топ категорий в каталоге</h2></div>
+          <div class="panel" data-reveal>
+            <div class="panel-head"><h2>Ваш агент</h2></div>
+            <div id="overview-agent-card" style="padding:16px 22px 20px"></div>
+          </div>
+        </div>
+
+        <!-- Recent conversations table -->
+        <div class="panel" data-reveal>
+          <div class="panel-head">
+            <div class="panel-head-left">
+              <h2>Последние диалоги</h2>
+              <span class="panel-sub">Свежие обращения клиентов к агенту</span>
+            </div>
+            <button class="btn secondary" style="font-size:12px;padding:6px 12px" onclick="document.querySelector('[data-tab=messages]').click()">Открыть инбокс →</button>
+          </div>
+          <div class="ov-table-head">
+            <div>Клиент</div><div>Канал</div><div>Роль</div><div>Время</div>
+          </div>
+          <div id="overview-messages"></div>
+        </div>
+
+        <!-- Integrations mini-grid -->
+        <div class="panel" data-reveal>
+          <div class="panel-head">
+            <div class="panel-head-left">
+              <h2>Подключения</h2>
+              <span class="panel-sub">Каналы и сервисы, подключённые к агенту</span>
+            </div>
+          </div>
+          <div id="overview-integrations" class="integrations-row"></div>
+        </div>
+
+      </section>
+
+      <!-- ═══════════════════════ АНАЛИТИКА ════════════════════════════════ -->
+      <section id="tab-analytics" class="tab">
+
+        <!-- 4 KPI cards -->
+        <div class="analytics-kpi-grid" data-reveal>
+          <div class="kpi-card">
+            <div class="kpi-label">Сообщений за 30 дней</div>
+            <div class="kpi-row"><span class="kpi-value" id="kpi-messages">—</span></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Конверсия в заказы</div>
+            <div class="kpi-row"><span class="kpi-value" id="kpi-conv">—</span><span class="kpi-trend" id="kpi-conv-trend"></span></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Заказов от агента</div>
+            <div class="kpi-row"><span class="kpi-value" id="kpi-orders-cnt">—</span></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Ср. время ответа</div>
+            <div class="kpi-row"><span class="kpi-value" id="kpi-latency">—</span></div>
+          </div>
+        </div>
+
+        <!-- Full-width trend chart -->
+        <div class="panel chart-panel" data-reveal>
+          <div class="panel-head">
+            <div class="panel-head-left">
+              <h2>Объём сообщений за 14 дней</h2>
+              <span class="panel-sub">Рост за счёт автоматизации входящих обращений</span>
+            </div>
+            <div id="insights-row" style="display:flex;gap:16px;align-items:baseline">
+              <span style="font-size:13px;color:var(--text2)">Конверсия: <strong id="conv-pct">—</strong></span>
+              <span class="muted-sm" id="conv-meta"></span>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-messages"></canvas></div>
+        </div>
+
+        <!-- 3-column: donut + category bars + missed queries -->
+        <div class="analytics-3col">
+          <div class="panel" data-reveal>
+            <div class="panel-head"><h2>Заказы по статусам</h2></div>
+            <div class="donut-wrap" style="padding:16px 0 12px">
+              <canvas id="chart-orders" style="max-width:200px;max-height:200px"></canvas>
+            </div>
+          </div>
+          <div class="panel" data-reveal>
+            <div class="panel-head"><h2>Топ категорий</h2></div>
+            <div id="analytics-cat-bars" class="a-bars" style="padding:4px 22px 20px"></div>
+          </div>
+          <div class="panel" data-reveal>
+            <div class="panel-head"><h2>Запросы без ответа</h2></div>
+            <div id="missed-queries-list" class="intents-list" style="padding:4px 22px 16px"></div>
+          </div>
+        </div>
+
+        <!-- 2-column: top models + brands chart -->
+        <div class="charts-row">
+          <div class="panel chart-panel" data-reveal>
+            <div class="panel-head"><h2>Остатки по товарам</h2></div>
+            <div id="top-models-list" class="top-list"></div>
+          </div>
+          <div class="panel chart-panel" data-reveal>
+            <div class="panel-head"><h2>Топ категорий каталога</h2></div>
             <div class="chart-wrap"><canvas id="chart-brands"></canvas></div>
           </div>
         </div>
 
-        <!-- Analytics summary -->
-        <div class="charts-row">
-          <div class="panel chart-panel">
-            <div class="panel-head"><h2>Заказы по статусам</h2></div>
-            <div class="chart-wrap"><canvas id="chart-orders"></canvas></div>
-          </div>
-          <div class="panel chart-panel">
-            <div class="panel-head"><h2>Остатки по товарам</h2></div>
-            <div id="top-models-list" class="top-list"></div>
-          </div>
-        </div>
-
-        <!-- Insights row -->
-        <div class="charts-row" id="insights-row">
-          <div class="panel chart-panel">
-            <div class="panel-head">
-              <h2>Конверсия за 30 дней</h2>
-              <span class="muted-sm">сообщения → заказы</span>
-            </div>
-            <div id="insights-conversion" class="insights-conversion">
-              <div class="conv-big" id="conv-pct">—</div>
-              <div class="conv-meta" id="conv-meta"></div>
-            </div>
-          </div>
-          <div class="panel chart-panel">
-            <div class="panel-head">
-              <h2>Топ запросов без результата</h2>
-              <span class="muted-sm">клиенты спрашивают, бот не находит</span>
-            </div>
-            <div id="missed-queries-list" class="top-list"></div>
-          </div>
-        </div>
-
-        <div class="panel mt">
-          <div class="panel-head"><h2>Последние диалоги</h2></div>
-          <div id="overview-messages" class="message-list"></div>
-        </div>
       </section>
 
-      <!-- КАТАЛОГ -->
+      <!-- ═══════════════════════ КАТАЛОГ ══════════════════════════════════ -->
       <section id="tab-catalog" class="tab">
-        <div class="panel">
+        <div class="panel" data-reveal>
           <div class="panel-head">
             <h2>Каталог товаров</h2>
             <div class="panel-head-right">
               <input id="catalog-search" class="search-input" type="search" placeholder="Поиск…">
-              <span id="catalog-count" class="muted"></span>
+              <span id="catalog-count" class="muted small"></span>
             </div>
           </div>
           <div class="table-wrap">
@@ -239,18 +347,18 @@
             </table>
           </div>
           <div class="pager">
-            <button id="cat-prev" class="btn secondary">Назад</button>
-            <span id="cat-page-info" class="muted"></span>
-            <button id="cat-next" class="btn secondary">Вперёд</button>
+            <button id="cat-prev" class="btn secondary">← Назад</button>
+            <span id="cat-page-info" class="muted small"></span>
+            <button id="cat-next" class="btn secondary">Вперёд →</button>
           </div>
         </div>
-        <p class="edit-hint muted">Нажмите на цену или количество для редактирования. Enter — сохранить, Esc — отмена.</p>
+        <p class="edit-hint muted">Нажмите на цену или остаток для редактирования — Enter сохранить, Esc отмена.</p>
 
         <!-- CSV Import -->
-        <div class="panel mt">
+        <div class="panel" data-reveal>
           <div class="panel-head"><h2>Загрузка CSV</h2></div>
           <div class="panel-body">
-            <p class="muted small">Формат колонок: name, description, sku, category, price, quantity, attributes (JSON или size:42;color:белый)</p>
+            <p class="muted small">Колонки: name, description, sku, category, price, quantity, attributes (JSON или size:42;color:белый)</p>
             <input type="file" id="csv-file" accept=".csv">
             <div class="btn-row">
               <button id="preview-btn" class="btn secondary">Предпросмотр</button>
@@ -258,36 +366,34 @@
               <button id="replace-btn" class="btn danger">Заменить полностью</button>
             </div>
             <a id="export-link" class="link" href="#">Скачать CSV</a>
+            <div id="import-result" class="hidden muted small"></div>
           </div>
-          <div id="import-result" class="panel-body muted small hidden"></div>
         </div>
 
-        <!-- 1С CommerceML Import -->
-        <div class="panel mt">
+        <!-- 1С CommerceML -->
+        <div class="panel" data-reveal>
           <div class="panel-head">
             <h2>Загрузка из 1С (CommerceML)</h2>
             <span class="badge-info">1С:Розница / 1С:УТ</span>
           </div>
           <div class="panel-body">
-            <p class="muted small">
-              В 1С: <strong>Файл → Обмен данными → Выгрузить в CommerceML</strong> → загрузите .xml файл сюда.
-            </p>
+            <p class="muted small">В 1С: <strong>Файл → Обмен данными → Выгрузить в CommerceML</strong> → загрузите .xml сюда.</p>
             <input type="file" id="xml-1c-file" accept=".xml">
             <div class="btn-row">
               <button id="xml-1c-btn" class="btn">Обновить остатки</button>
               <button id="xml-1c-replace-btn" class="btn danger">Заменить каталог</button>
             </div>
+            <div id="xml-1c-result" class="muted small hidden"></div>
           </div>
-          <div id="xml-1c-result" class="panel-body muted small hidden"></div>
         </div>
       </section>
 
-      <!-- ЗАКАЗЫ -->
+      <!-- ═══════════════════════ ЗАКАЗЫ ════════════════════════════════════ -->
       <section id="tab-orders" class="tab">
-        <div class="panel">
+        <div class="panel" data-reveal>
           <div class="panel-head">
             <h2>Заказы</h2>
-            <span id="orders-count" class="muted"></span>
+            <span id="orders-count" class="muted small"></span>
           </div>
           <div class="table-wrap">
             <table>
@@ -301,215 +407,250 @@
         </div>
       </section>
 
-      <!-- ДИАЛОГИ -->
+      <!-- ═══════════════════════ ДИАЛОГИ ══════════════════════════════════ -->
       <section id="tab-messages" class="tab">
-        <div class="panel">
+        <div class="panel" data-reveal>
           <div class="panel-head"><h2>История диалогов</h2></div>
           <div id="messages-list" class="message-list"></div>
         </div>
       </section>
 
-      <!-- НАСТРОЙКИ БОТА -->
+      <!-- ══════════════════════════ АГЕНТ ════════════════════════════════ -->
       <section id="tab-bot" class="tab">
 
-        <!-- Telegram -->
-        <div class="panel">
-          <div class="panel-head">
-            <h2>Telegram бот</h2>
-            <span id="tg-status-badge" class="status-badge badge-pending">Не подключён</span>
-          </div>
-          <div id="tg-connected-block" class="panel-body hidden">
-            <div class="bot-connected-info">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              <div>
-                <strong>Бот подключён</strong>
-                <p id="tg-bot-username" class="muted small"></p>
+        <!-- ══ НАСТРОЙКИ АГЕНТА ══ -->
+        <div id="agent-card-view">
+
+          <!-- Header -->
+          <div class="panel" data-reveal>
+            <div class="agent-hdr">
+              <div class="agent-big-icon"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg></div>
+              <div class="agent-hdr-info">
+                <div class="agent-hdr-top">
+                  <span class="agent-big-name" id="agent-display-name">Агент</span>
+                  <span class="agent-pill on" id="agent-display-status">
+                    <span class="pulse-dot"></span>&nbsp;Активен
+                  </span>
+                </div>
+                <div class="agent-big-desc" id="agent-display-desc">Консультирует клиентов и помогает с заказами</div>
               </div>
             </div>
-            <label class="form-label mt-sm">
-              Telegram ID для уведомлений о заказах
-              <input type="text" id="owner-tg-id-input" placeholder="123456789" inputmode="numeric" autocomplete="off">
-              <span class="muted small" id="tg-notify-hint">
-                Узнайте ID в <a href="https://t.me/userinfobot" target="_blank" rel="noopener">@userinfobot</a>, вставьте сюда и один раз нажмите <strong>/start</strong> у бота магазина.
-              </span>
-            </label>
-            <div class="btn-row">
-              <button id="save-notify-settings" class="btn secondary" type="button">Сохранить уведомления</button>
-            </div>
-            <div class="btn-row mt-sm">
-              <button id="tg-disconnect-btn" class="btn danger">Отключить бота</button>
-            </div>
           </div>
-          <div id="tg-connect-block" class="panel-body form-grid">
-            <p class="muted small">
-              Создайте бота через <a href="https://t.me/BotFather" target="_blank">@BotFather</a> и вставьте токен ниже.
-              После сохранения бот автоматически начнёт отвечать клиентам.
-            </p>
-            <label class="form-label">
-              Токен Telegram бота
-              <input type="text" id="tg-token-input" placeholder="123456:ABC-DEF1234..." autocomplete="off">
-            </label>
-            <div class="btn-row">
-              <button id="tg-connect-btn" class="btn">Подключить бота</button>
-            </div>
-            <p id="tg-connect-error" class="error-msg hidden"></p>
-          </div>
-        </div>
 
-        <!-- МойСклад -->
-        <div class="panel mt">
-          <div class="panel-head">
-            <h2>МойСклад</h2>
-            <span id="ms-status-badge" class="status-badge badge-pending">Не подключён</span>
-          </div>
-          <div id="ms-connected-block" class="panel-body hidden">
-            <div class="bot-connected-info">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              <div>
-                <strong>МойСклад подключён</strong>
-                <p class="muted small">Каталог загружается из МойСклад. При продаже остатки обновляются через вебхук.</p>
+          <!-- Metrics -->
+          <div class="agent-metrics" data-reveal>
+            <div class="a-metric metric-dialogs">
+              <div class="a-metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+              </div>
+              <div class="a-metric-body">
+                <div class="a-metric-label">Диалогов</div>
+                <div class="a-metric-value" id="agent-m-dialogs">—</div>
+                <div class="a-metric-trend">за всё время</div>
               </div>
             </div>
-            <div class="btn-row mt-sm">
-              <button id="ms-sync-btn" class="btn secondary" type="button">Обновить остатки</button>
-              <button id="ms-replace-btn" class="btn" type="button">Только из МойСклад</button>
-              <button id="ms-disconnect-btn" class="btn danger" type="button">Отключить</button>
+            <div class="a-metric metric-messages">
+              <div class="a-metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4c0-1.1.9-2 2-2h8a2 2 0 0 1 2 2Z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
+              </div>
+              <div class="a-metric-body">
+                <div class="a-metric-label">Сообщений</div>
+                <div class="a-metric-value" id="agent-m-messages">—</div>
+                <div class="a-metric-trend">обработано агентом</div>
+              </div>
             </div>
-            <p class="muted small mt-sm">
-              Вебхук (автообновление): <code id="ms-webhook-url-connected" class="mono"></code><br>
-              Заголовок: <code>X-API-Key: <span id="ms-api-key-hint">ваш ключ синхронизации</span></code>
-            </p>
-          </div>
-          <div id="ms-connect-block" class="panel-body form-grid">
-            <p class="muted small">
-              Вставьте токен МойСклад (Настройки → Токены). Товары загрузятся в каталог
-              <strong>текущего магазина</strong> (см. название слева в меню). Бот видит только товары
-              того магазина, чей Telegram-бот подключён здесь. Вебхук:
-              <code id="ms-webhook-url" class="mono"></code>
-            </p>
-            <label class="form-label">
-              Токен МойСклад
-              <input type="text" id="ms-token-input" placeholder="Bearer token из МойСклад" autocomplete="off">
-            </label>
-            <div class="btn-row">
-              <button id="ms-connect-btn" class="btn">Подключить МойСклад</button>
+            <div class="a-metric metric-orders is-primary">
+              <div class="a-metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+              </div>
+              <div class="a-metric-body">
+                <div class="a-metric-label">Заказов</div>
+                <div class="a-metric-value" id="agent-m-orders">—</div>
+                <div class="a-metric-trend">оформлено через агента</div>
+              </div>
             </div>
-            <p id="ms-connect-error" class="error-msg hidden"></p>
+            <div class="a-metric metric-conv is-primary">
+              <div class="a-metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+              </div>
+              <div class="a-metric-body">
+                <div class="a-metric-label">Конверсия</div>
+                <div class="a-metric-value" id="agent-m-conv">—</div>
+                <div class="a-metric-trend">диалог → заказ</div>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <!-- API ключ синхронизации -->
-        <div class="panel mt">
-          <div class="panel-head"><h2>API ключ синхронизации</h2></div>
-          <div class="panel-body form-grid">
-            <p class="muted small">
-              Ключ используется для автоматической синхронизации из 1С, МойСклад и других систем.
-            </p>
-            <div id="sync-api-key-block">
-              <p class="muted small">Ключ не сгенерирован</p>
-            </div>
-            <div class="btn-row">
-              <button id="generate-api-key-btn" class="btn">Сгенерировать ключ</button>
-            </div>
-          </div>
-        </div>
+          <!-- Detail grid -->
+          <div class="agent-detail-grid">
 
-        <!-- 1С Автосинхронизация -->
-        <div class="panel mt" id="onec-setup-panel">
-          <div class="panel-head">
-            <h2>1С — автоматическая синхронизация</h2>
-            <span class="badge-info">1С:Розница / 1С:УТ</span>
-          </div>
-          <div class="panel-body">
-            <p class="muted small">Настройте один раз — 1С будет сам отправлять остатки по расписанию.</p>
-            <div class="setup-steps">
-              <div class="setup-step">
-                <span class="step-num">1</span>
-                <div>
-                  В 1С: <strong>Администрирование → Обмен данными → Обмен с сайтом → Создать</strong>
+            <!-- Left: settings panels -->
+            <div style="display:flex;flex-direction:column;gap:20px">
+
+              <!-- Telegram -->
+              <div class="panel" data-reveal>
+                <div class="panel-head">
+                  <h2>Telegram агент</h2>
+                  <span id="tg-status-badge" class="status-badge badge-pending">Не подключён</span>
+                </div>
+                <div id="tg-connected-block" class="panel-body hidden">
+                  <div class="bot-connected-info">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--success-text)" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    <div>
+                      <strong>Агент подключён</strong>
+                      <p id="tg-bot-username" class="muted small"></p>
+                    </div>
+                  </div>
+                  <label class="form-label mt-sm">
+                    Telegram ID для уведомлений о заказах
+                    <input type="text" id="owner-tg-id-input" placeholder="123456789" inputmode="numeric" autocomplete="off">
+                    <span class="muted small" id="tg-notify-hint">
+                      Узнайте ID в <a href="https://t.me/userinfobot" target="_blank" rel="noopener">@userinfobot</a>, вставьте сюда и нажмите /start у агента.
+                    </span>
+                  </label>
+                  <div class="btn-row">
+                    <button id="save-notify-settings" class="btn secondary">Сохранить уведомления</button>
+                  </div>
+                  <div class="btn-row mt-sm">
+                    <button id="tg-disconnect-btn" class="btn danger">Отключить агента</button>
+                  </div>
+                </div>
+                <div id="tg-connect-block" class="panel-body form-grid">
+                  <p class="muted small">Создайте агента через <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> и вставьте токен.</p>
+                  <label class="form-label">
+                    Токен Telegram
+                    <input type="text" id="tg-token-input" placeholder="123456:ABC-DEF1234..." autocomplete="off">
+                  </label>
+                  <div class="btn-row">
+                    <button id="tg-connect-btn" class="btn">Подключить агента</button>
+                  </div>
+                  <p id="tg-connect-error" class="error-msg hidden"></p>
                 </div>
               </div>
-              <div class="setup-step">
-                <span class="step-num">2</span>
-                <div>
-                  Укажите:
-                  <ul class="setup-list">
-                    <li><strong>URL сайта:</strong> <code id="onec-url" class="mono copy-on-click">—</code></li>
-                    <li><strong>Логин:</strong> <code class="mono">shop</code></li>
-                    <li><strong>Пароль:</strong> <code id="onec-password" class="mono copy-on-click">— (сгенерируйте ключ выше)</code></li>
-                  </ul>
+
+              <!-- МойСклад -->
+              <div class="panel" data-reveal>
+                <div class="panel-head">
+                  <h2>МойСклад</h2>
+                  <span id="ms-status-badge" class="status-badge badge-pending">Не подключён</span>
+                </div>
+                <div id="ms-connected-block" class="panel-body hidden">
+                  <div class="bot-connected-info">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--success-text)" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    <div>
+                      <strong>МойСклад подключён</strong>
+                      <p class="muted small">Каталог загружается из МойСклад. Остатки обновляются через вебхук.</p>
+                    </div>
+                  </div>
+                  <div class="btn-row mt-sm">
+                    <button id="ms-sync-btn" class="btn secondary">Обновить остатки</button>
+                    <button id="ms-replace-btn" class="btn" style="display:none">Только из МойСклад</button>
+                    <button id="ms-disconnect-btn" class="btn danger">Отключить</button>
+                  </div>
+                  <!-- Hidden IDs required by JS -->
+                  <span id="ms-webhook-url-connected" style="display:none"></span>
+                  <span id="ms-api-key-hint" style="display:none"></span>
+                </div>
+                <div id="ms-connect-block" class="panel-body form-grid">
+                  <p class="muted small">Вставьте токен МойСклад (Настройки → Токены). Вебхук: <code id="ms-webhook-url" class="mono"></code></p>
+                  <label class="form-label">
+                    Токен МойСклад
+                    <input type="text" id="ms-token-input" placeholder="Bearer token из МойСклад" autocomplete="off">
+                  </label>
+                  <div class="btn-row">
+                    <button id="ms-connect-btn" class="btn">Подключить МойСклад</button>
+                  </div>
+                  <p id="ms-connect-error" class="error-msg hidden"></p>
                 </div>
               </div>
-              <div class="setup-step">
-                <span class="step-num">3</span>
-                <div>Выберите расписание: каждые <strong>15 минут</strong> или реже. Нажмите "Начать обмен".</div>
-              </div>
-            </div>
-            <p class="muted small mt" style="color:#16a34a">
-              После настройки 1С будет автоматически отправлять изменения — как МойСклад.
-            </p>
-          </div>
-        </div>
 
-        <!-- Роль и промпт -->
-        <div class="panel mt">
-          <div class="panel-head">
-            <h2>Роль и промпт бота</h2>
-            <span id="data-source-badge" class="badge-info">Источник: manual</span>
-          </div>
-          <div class="panel-body form-grid">
-            <label class="form-label">
-              Название магазина
-              <input type="text" id="shop-name-input" placeholder="Мой магазин">
-            </label>
-            <label class="form-label">
-              Роль бота
-              <input type="text" id="bot-role-input" placeholder="Консультант мебельного магазина">
-              <span class="muted small">Например: продавец техники, консультант косметики, помощник в магазине одежды</span>
-            </label>
-            <label class="form-label">
-              Тип бизнеса
-              <select id="business-type-input">
-                <option value="">Не указан</option>
-                <option value="shoes">Обувь / одежда</option>
-                <option value="electronics">Техника</option>
-                <option value="furniture">Мебель</option>
-                <option value="cosmetics">Косметика</option>
-                <option value="other">Другое</option>
-              </select>
-            </label>
-            <label class="form-label">
-              Ссылка на сайт
-              <input type="url" id="website-url-input" placeholder="https://example.kz">
-              <span class="muted small">Сохраняется для будущего парсинга каталога (пока без автозагрузки)</span>
-            </label>
-            <label class="form-label">
-              Системный промпт (дополнительно)
-              <textarea id="bot-prompt-input" rows="6" placeholder="Будь дружелюбным и терпеливым. Помогай выбрать товар. Можешь давать общие советы по теме вопроса."></textarea>
-              <span class="muted small">Только тон и стиль общения. Не перечисляйте товары здесь — бот берёт их из каталога. Цены и наличие бот не выдумывает.</span>
-            </label>
-            <label class="form-label">
-              Groq API ключ (опционально)
-              <input type="password" id="groq-key-input" placeholder="gsk_... — свой ключ Groq" autocomplete="off">
-              <span class="muted small" id="groq-key-hint">Если не указан — используется ключ платформы. <button type="button" id="clear-groq-key-btn" class="link-btn hidden">Удалить свой ключ</button></span>
-            </label>
-            <div class="btn-row">
-              <button id="save-bot-settings" class="btn">Сохранить</button>
-            </div>
-          </div>
-        </div>
+              <!-- API key + 1С -->
+              <div class="panel" data-reveal>
+                <div class="panel-head"><h2>API ключ синхронизации</h2></div>
+                <div class="panel-body form-grid">
+                  <p class="muted small">Ключ для синхронизации из 1С, МойСклад и других систем.</p>
+                  <div id="sync-api-key-block"><p class="muted small">Ключ не сгенерирован</p></div>
+                  <div class="btn-row">
+                    <button id="generate-api-key-btn" class="btn">Сгенерировать ключ</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 1С placeholder: IDs used in JS must stay in DOM -->
+              <span id="onec-url" style="display:none"></span>
+              <span id="onec-password" style="display:none"></span>
+
+            </div><!-- /left -->
+
+            <!-- Right: agent config + recent convos -->
+            <div style="display:flex;flex-direction:column;gap:20px">
+
+              <!-- Agent role & prompt -->
+              <div class="panel" data-reveal>
+                <div class="panel-head">
+                  <h2>Профиль агента</h2>
+                  <span id="data-source-badge" class="badge-info">Источник: manual</span>
+                </div>
+                <div class="panel-body form-grid">
+                  <label class="form-label">
+                    Название магазина
+                    <input type="text" id="shop-name-input" placeholder="Мой магазин">
+                  </label>
+                  <label class="form-label">
+                    Роль агента
+                    <input type="text" id="bot-role-input" placeholder="Консультант мебельного магазина">
+                    <span class="muted small">Например: продавец техники, консультант косметики, помощник в магазине одежды</span>
+                  </label>
+                  <label class="form-label">
+                    Тип бизнеса
+                    <select id="business-type-input">
+                      <option value="">Не указан</option>
+                      <option value="shoes">Обувь / одежда</option>
+                      <option value="electronics">Техника</option>
+                      <option value="furniture">Мебель</option>
+                      <option value="cosmetics">Косметика</option>
+                      <option value="other">Другое</option>
+                    </select>
+                  </label>
+                  <!-- website-url-input hidden: field removed from UI but JS still reads/writes it -->
+                  <input type="url" id="website-url-input" style="display:none" autocomplete="off">
+                  <label class="form-label">
+                    Системный промпт (дополнительно)
+                    <textarea id="bot-prompt-input" rows="5" placeholder="Будь дружелюбным. Помогай выбрать товар. Цены и наличие агент не выдумывает."></textarea>
+                    <span class="muted small">Только тон и стиль. Не перечисляйте товары здесь — агент берёт их из каталога.</span>
+                  </label>
+                  <label class="form-label">
+                    Groq API ключ (опционально)
+                    <input type="password" id="groq-key-input" placeholder="gsk_... — свой ключ Groq" autocomplete="off">
+                    <span class="muted small" id="groq-key-hint">
+                      Если не указан — используется ключ платформы.
+                      <button type="button" id="clear-groq-key-btn" class="link-btn hidden">Удалить свой ключ</button>
+                    </span>
+                  </label>
+                  <div class="btn-row">
+                    <button id="save-bot-settings" class="btn">Сохранить настройки агента</button>
+                  </div>
+                </div>
+              </div>
+
+            </div><!-- /right -->
+          </div><!-- /detail-grid -->
+        </div><!-- /agent-card-view -->
+
+
       </section>
 
-      <!-- ПОДПИСКА -->
+      <!-- ═══════════════════════ ПОДПИСКА ══════════════════════════════════ -->
       <section id="tab-subscription" class="tab">
-        <div id="subscription-card"></div>
+        <div id="subscription-card" data-reveal></div>
       </section>
 
-      <!-- ПРОФИЛЬ -->
+      <!-- ═══════════════════════ ПРОФИЛЬ ═══════════════════════════════════ -->
       <section id="tab-profile" class="tab">
         <div class="profile-grid">
-          <!-- Информация о магазине -->
-          <div class="panel">
+
+          <!-- Shop info -->
+          <div class="panel" data-reveal>
             <div class="panel-head"><h2>Информация о магазине</h2></div>
             <div class="panel-body form-grid">
               <div class="profile-info-row">
@@ -543,11 +684,11 @@
             </div>
           </div>
 
-          <!-- Смена пароля -->
-          <div class="panel">
+          <!-- Security -->
+          <div class="panel" data-reveal>
             <div class="panel-head"><h2>Безопасность</h2></div>
             <div class="panel-body form-grid">
-              <p class="muted small">Рекомендуем использовать надёжный пароль длиной не менее 12 символов.</p>
+              <p class="muted small">Рекомендуем пароль длиной не менее 12 символов.</p>
               <label class="form-label">
                 Текущий пароль
                 <input type="password" id="profile-cur-pwd" placeholder="••••••••">
@@ -563,11 +704,38 @@
           </div>
         </div>
       </section>
-    </main>
-  </div>
 
-  <div id="toast" class="toast hidden"></div>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <script src="/dashboard/static/app.js?v=10"></script>
+    </div><!-- /.content-area -->
+  </div><!-- /.main-content -->
+</div><!-- /#app -->
+
+<!-- Toast -->
+<div id="toast" class="toast hidden"></div>
+
+<!-- Theme toggle script (independent of app.js) -->
+<script>
+(function(){
+  var saved = localStorage.getItem('sb_theme');
+  if (saved === 'dark') document.body.classList.add('sb-dark');
+
+  function updateIcon() {
+    var btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.textContent = document.body.classList.contains('sb-dark') ? '☾' : '☀';
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    updateIcon();
+    var btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.addEventListener('click', function() {
+      document.body.classList.toggle('sb-dark');
+      localStorage.setItem('sb_theme', document.body.classList.contains('sb-dark') ? 'dark' : 'light');
+      updateIcon();
+    });
+  });
+})();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="/dashboard/static/app.js?v=26"></script>
 </body>
 </html>

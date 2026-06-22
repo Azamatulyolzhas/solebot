@@ -1,9 +1,5 @@
 const TAB_TITLES = {
-  overview:     ["Обзор",      "Статистика магазина и активность бота"],
-  products:     ["Каталог",    "Все товары на складе"],
-  orders:       ["Заказы",     "Заявки от клиентов через бота"],
-  import:       ["Импорт CSV", "Загрузка и обновление каталога"],
-  messages:     ["Сообщения",  "История диалогов с клиентами"],
+  overview:     ["Обзор",      "Аналитика платформы и магазинов"],
   applications: ["Заявки",     "Новые магазины ожидают активации"],
   shops:        ["Магазины",   "Все зарегистрированные магазины"],
   email:        ["Email",      "Домен Resend — письма на любые адреса клиентов"],
@@ -27,6 +23,8 @@ let productsOffset = 0;
 const productsLimit = 50;
 let allProducts = [];
 let allShops    = [];
+let statsData   = null;
+let appsCount   = 0;
 
 const loginScreen = document.getElementById("login-screen");
 const app = document.getElementById("app");
@@ -96,8 +94,10 @@ async function enterApp() {
 }
 
 function bindLinks() {
-  document.getElementById("export-link").href = authQuery("/admin/export");
-  document.getElementById("template-link").href = authQuery("/admin/import-template");
+  const exp = document.getElementById("export-link");
+  if (exp) exp.href = authQuery("/admin/export");
+  const tpl = document.getElementById("template-link");
+  if (tpl) tpl.href = authQuery("/admin/import-template");
 }
 
 function switchTab(name) {
@@ -114,23 +114,123 @@ function switchTab(name) {
 
 // ── Stats ──────────────────────────────────────────────────────────────────────
 
+const ICON = {
+  store:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11a1 1 0 001 1h14a1 1 0 001-1V9"/><path d="M9 21V13h6v8"/></svg>`,
+  check:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+  file:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+  card:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`,
+  activity: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+  zap:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+};
+
+// loadStats only stores the data; the overview is composed in renderOverview()
 function renderStats(data) {
-  const grid = document.getElementById("stats-grid");
-  const items = [
-    ["products", data.products],
-    ["orders", data.orders],
-    ["conversations", data.conversations],
-    ["messages", data.messages],
-    ["analytics_events", data.analytics_events],
-    ["total_tokens", data.total_tokens],
-  ];
-  grid.innerHTML = items.map(([key, value]) => `
-    <article class="stat-card">
-      <span>${STAT_LABELS[key]}</span>
-      <strong>${value ?? 0}</strong>
-    </article>
-  `).join("");
+  statsData = data;
   document.getElementById("db-badge").textContent = `${data.database || "db"} · shop #${data.shop_id || "?"}`;
+}
+
+function statCard(label, value, color, svg) {
+  return `
+    <article class="stat-card">
+      <div class="stat-card-text">
+        <span class="stat-card-label">${label}</span>
+        <span class="stat-card-num">${Number(value ?? 0).toLocaleString("ru-RU")}</span>
+      </div>
+      <span class="stat-icon-badge" style="background:color-mix(in srgb, ${color} 14%, transparent);color:${color}">${svg}</span>
+    </article>`;
+}
+
+function barRow(label, count, max, color) {
+  const pct = max > 0 ? Math.round((count / max) * 100) : 0;
+  return `
+    <div class="a-bar-row">
+      <span class="a-bar-label">${escapeHtml(label)}</span>
+      <div class="a-bar-track"><div class="a-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <span class="a-bar-pct">${count}</span>
+    </div>`;
+}
+
+// ── Overview analytics (composed from shops + applications + stats) ──────────────
+function renderOverview() {
+  const shops    = (allShops || []).filter((s) => s.status !== "deleted");
+  const now      = new Date();
+  const total    = shops.length;
+  const active   = shops.filter((s) => s.status === "active").length;
+  const paid     = shops.filter((s) => {
+    const ends = s.period_ends_at || s.trial_ends_at;
+    return s.plan && s.plan !== "trial" && (!ends || new Date(ends) >= now);
+  }).length;
+  const tokens   = statsData?.total_tokens ?? 0;
+  const events   = statsData?.analytics_events ?? 0;
+
+  const grid = document.getElementById("stats-grid");
+  if (grid) {
+    grid.innerHTML = [
+      statCard("Магазины",       total,     "#3B82F6", ICON.store),
+      statCard("Активные",       active,    "#16a34a", ICON.check),
+      statCard("Заявки",         appsCount, "#ea580c", ICON.file),
+      statCard("Платные тарифы", paid,      "#8b5cf6", ICON.card),
+      statCard("События AI",     events,    "#0ea5e9", ICON.activity),
+      statCard("Токены AI",      tokens,    "#e11d48", ICON.zap),
+    ].join("");
+  }
+
+  // Plans breakdown
+  const plansEl = document.getElementById("plans-bars");
+  if (plansEl) {
+    const planDefs = [
+      ["trial", "Trial",  "#ea580c"],
+      ["basic", "Basic",  "#3B82F6"],
+      ["pro",   "Pro",    "#16a34a"],
+    ];
+    const counts = planDefs.map(([key]) => shops.filter((s) => (s.plan || "trial") === key).length);
+    const noPlan = shops.filter((s) => !s.plan).length;
+    const maxP   = Math.max(1, ...counts, noPlan);
+    plansEl.innerHTML = total
+      ? planDefs.map(([, lbl, color], i) => barRow(lbl, counts[i], maxP, color)).join("") +
+        (noPlan ? barRow("Без тарифа", noPlan, maxP, "#7c7c80") : "")
+      : `<p class="muted center" style="padding:8px 0">Нет данных</p>`;
+  }
+
+  // Status breakdown
+  const statusEl = document.getElementById("status-bars");
+  if (statusEl) {
+    const statusDefs = [
+      ["active",    "Активны",     "#16a34a"],
+      ["pending",   "На модерации","#ea580c"],
+      ["suspended", "Заблокированы","#e11d48"],
+      ["rejected",  "Отклонены",   "#7c7c80"],
+    ];
+    const sCounts = statusDefs.map(([key]) => shops.filter((s) => s.status === key).length);
+    const maxS    = Math.max(1, ...sCounts);
+    statusEl.innerHTML = total
+      ? statusDefs.map(([, lbl, color], i) => barRow(lbl, sCounts[i], maxS, color)).join("")
+      : `<p class="muted center" style="padding:8px 0">Нет данных</p>`;
+  }
+
+  // Recent shops
+  const recentBody = document.getElementById("recent-shops-body");
+  if (recentBody) {
+    const recent = [...shops]
+      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+      .slice(0, 6);
+    const meta = document.getElementById("recent-shops-meta");
+    if (meta) meta.textContent = `${total} всего`;
+    recentBody.innerHTML = recent.length
+      ? recent.map((s) => {
+          const cls = SHOP_STATUS_CLASS[s.status] || "status-new";
+          const lbl = SHOP_STATUS_LABELS[s.status] || s.status || "—";
+          return `
+            <tr>
+              <td><strong>${escapeHtml(s.name || "—")}</strong></td>
+              <td>${escapeHtml(s.owner_email || "—")}</td>
+              <td>${escapeHtml(s.plan || "trial")}</td>
+              <td><span class="status-select ${cls}" style="cursor:default">${escapeHtml(lbl)}</span></td>
+              <td>${formatDate(s.created_at)}</td>
+            </tr>`;
+        }).join("")
+      : `<tr><td colspan="5" class="muted center">Магазинов пока нет</td></tr>`;
+  }
 }
 
 // ── Messages ───────────────────────────────────────────────────────────────────
@@ -254,57 +354,6 @@ function cancelEdit(cell, field, original) {
 
 // ── Orders ─────────────────────────────────────────────────────────────────────
 
-function renderOrders(data) {
-  document.getElementById("orders-count").textContent = `${data.count} заказов`;
-  const body = document.getElementById("orders-body");
-  if (!data.items.length) {
-    body.innerHTML = `<tr><td colspan="8" class="muted center">Заказов пока нет</td></tr>`;
-    return;
-  }
-  body.innerHTML = data.items.map((o) => `
-    <tr>
-      <td>#${escapeHtml(o.id)}</td>
-      <td>${escapeHtml(o.channel || "—")}</td>
-      <td>${escapeHtml(o.external_user_id || "—")}</td>
-      <td>${escapeHtml(o.customer_name || "—")}</td>
-      <td>${escapeHtml(o.customer_phone || "—")}</td>
-      <td class="interest-cell">${escapeHtml(o.product_interest || "—")}</td>
-      <td>
-        <select class="status-select ${STATUS_CLASS[o.status] || "status-new"}" data-id="${o.id}" data-current="${o.status}">
-          ${ORDER_STATUSES.map((s) => `<option value="${s}" ${s === o.status ? "selected" : ""}>${STATUS_LABELS[s] || s}</option>`).join("")}
-        </select>
-      </td>
-      <td>${formatDate(o.created_at)}</td>
-    </tr>
-  `).join("");
-  attachOrderListeners();
-}
-
-function attachOrderListeners() {
-  document.querySelectorAll(".status-select").forEach((sel) => {
-    sel.addEventListener("change", handleStatusChange);
-  });
-}
-
-async function handleStatusChange(e) {
-  const sel = e.currentTarget;
-  const id = sel.dataset.id;
-  const prev = sel.dataset.current;
-  const newStatus = sel.value;
-  sel.disabled = true;
-  try {
-    await patchJson(`/admin/orders/${id}`, { status: newStatus });
-    sel.dataset.current = newStatus;
-    sel.className = `status-select ${STATUS_CLASS[newStatus] || "status-new"}`;
-    showToast(`Заказ #${id}: ${STATUS_LABELS[newStatus]}`, "success");
-  } catch (err) {
-    sel.value = prev;
-    showToast(err.message || "Ошибка", "error");
-  } finally {
-    sel.disabled = false;
-  }
-}
-
 // ── Import ─────────────────────────────────────────────────────────────────────
 
 function renderImportPreview(result) {
@@ -351,15 +400,11 @@ async function loadProducts() {
   renderProducts(data);
 }
 
-async function loadOrders() {
-  const data = await api("/admin/orders?limit=100");
-  renderOrders(data);
-}
-
 // ── Applications ───────────────────────────────────────────────────────────────
 async function loadApplications() {
   const data = await api("/admin/applications");
   const items = data.items || [];
+  appsCount = items.length;
   const badge = document.getElementById("apps-badge");
   const count = document.getElementById("apps-count");
   count.textContent = `${items.length} заявок`;
@@ -455,7 +500,7 @@ function renderShopsFiltered(items) {
         <td>
           <div style="display:flex;flex-wrap:wrap;gap:6px">
             <button class="btn-sm sub-extend-btn" data-id="${s.id}" data-name="${escapeHtml(s.name)}">
-              💳 Подписка
+              Подписка
             </button>
             ${s.status !== "deleted" ? `
               <button class="btn-sm secondary soft-delete-btn" data-id="${s.id}" data-name="${escapeHtml(s.name)}">
@@ -607,11 +652,6 @@ function matchShop(s, q) {
 async function loadAll() {
   const tasks = [
     loadStats(),
-    loadMessages(8, "overview-messages"),
-    loadMessages(40, "messages-list"),
-    loadProducts(),
-    loadOrders(),
-    loadApplications(),
     loadShops(),
   ];
   const results = await Promise.allSettled(tasks);
@@ -620,6 +660,7 @@ async function loadAll() {
     const msg = failed[0].reason?.message || "Ошибка загрузки";
     showToast(msg, "error");
   }
+  renderOverview();
 }
 
 async function uploadCsv(path) {
@@ -811,21 +852,6 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
 
 document.getElementById("refresh-btn").addEventListener("click", loadAll);
 
-document.getElementById("products-prev").addEventListener("click", async () => {
-  productsOffset = Math.max(0, productsOffset - productsLimit);
-  await loadProducts();
-});
-
-document.getElementById("products-next").addEventListener("click", async () => {
-  productsOffset += productsLimit;
-  await loadProducts();
-});
-
-document.getElementById("products-search").addEventListener("input", (e) => {
-  const q = e.target.value.trim().toLowerCase();
-  renderProductsFiltered(q ? allProducts.filter((p) => matchProduct(p, q)) : allProducts);
-});
-
 document.getElementById("shops-search").addEventListener("input", (e) => {
   const q = e.target.value.trim().toLowerCase();
   renderShopsFiltered(q ? allShops.filter((s) => matchShop(s, q)) : allShops);
@@ -834,36 +860,6 @@ document.getElementById("shops-search").addEventListener("input", (e) => {
 document.getElementById("shops-include-deleted").addEventListener("change", async (e) => {
   includeDeletedShops = e.target.checked;
   await loadShops();
-});
-
-document.getElementById("preview-btn").addEventListener("click", async () => {
-  try {
-    const result = await uploadCsv("/admin/import-preview");
-    renderImportPreview(result);
-  } catch (error) {
-    showToast(error.message || "Ошибка предпросмотра", "error");
-  }
-});
-
-document.getElementById("import-btn").addEventListener("click", async () => {
-  try {
-    const result = await uploadCsv("/admin/import");
-    showToast(`Импортировано: ${result.imported}`, "success");
-    await loadAll();
-  } catch (error) {
-    showToast(error.message || "Ошибка импорта", "error");
-  }
-});
-
-document.getElementById("replace-btn").addEventListener("click", async () => {
-  if (!window.confirm("Заменить весь каталог? Старые позиции будут удалены.")) return;
-  try {
-    const result = await uploadCsv("/admin/import?replace=true");
-    showToast(`Каталог заменён: ${result.imported} позиций`, "success");
-    await loadAll();
-  } catch (error) {
-    showToast(error.message || "Ошибка замены", "error");
-  }
 });
 
 if (token) {

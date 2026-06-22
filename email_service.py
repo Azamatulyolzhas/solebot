@@ -4,6 +4,7 @@ Set RESEND_API_KEY and EMAIL_FROM in .env to enable.
 If RESEND_API_KEY is missing, emails are silently skipped (logged as warning).
 """
 import logging
+from html import escape as _html_escape
 
 from config import RESEND_API_KEY, SHOP_DASHBOARD_URL
 from resend_email import get_email_status, send_email
@@ -123,19 +124,40 @@ def send_password_reset(owner_email: str, reset_token: str) -> bool:
     return _send(owner_email, "Сброс пароля SaleBot", html)
 
 
-def send_shop_registered(shop_name: str, owner_email: str) -> bool:
-    """Confirmation email right after shop submits registration."""
+def send_shop_welcome(
+    shop_name: str,
+    owner_email: str,
+    subscription: dict | None = None,
+) -> bool:
+    """Sent right after self-service registration. Trial is already active — guide the owner to the dashboard."""
+    dashboard_url = SHOP_DASHBOARD_URL.rstrip("/") + "/shop"
+    safe_name = _html_escape(shop_name)
+    trial_ends = _fmt_date((subscription or {}).get("trial_ends_at"))
+    sub_block = ""
+    if subscription:
+        sub_block = f"""
+      <h3 style="margin-top:24px;font-size:1rem;">Ваш пробный доступ</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:15px;">
+        {_subscription_rows(subscription)}
+      </table>
+        """
     html = f"""
     <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px;">
-      <h2 style="color:#2563eb;">Заявка получена</h2>
-      <p>Привет! Мы получили вашу заявку на регистрацию магазина <strong>{shop_name}</strong>.</p>
-      <p>Обычно проверка занимает до 24 часов. После одобрения вы получите ещё одно письмо.</p>
+      <h2 style="color:#16a34a;">Добро пожаловать! Аккаунт активирован 🎉</h2>
+      <p>Магазин <strong>{safe_name}</strong> уже работает — модерация не нужна.</p>
+      <p>Пробный доступ действует <strong>до {trial_ends}</strong>. За это время подключите Telegram-бота, загрузите каталог и проверьте, как бот отвечает.</p>
+      {sub_block}
+      <a href="{dashboard_url}"
+         style="display:inline-block;margin-top:16px;padding:12px 24px;
+                background:#16a34a;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">
+        Открыть кабинет
+      </a>
       <p style="margin-top:32px;color:#6b7280;font-size:13px;">
-        Если вы не регистрировались — просто проигнорируйте это письмо.
+        Письмо отправлено на email, указанный при регистрации.
       </p>
     </div>
     """
-    return _send(owner_email, f"Заявка на регистрацию «{shop_name}» получена", html)
+    return _send(owner_email, f"Магазин «{safe_name}» активирован — добро пожаловать", html)
 
 
 def send_new_order(

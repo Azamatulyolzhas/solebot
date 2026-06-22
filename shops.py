@@ -106,32 +106,81 @@ def get_all_active_telegram_shops() -> list[dict]:
         log.error(f"Get active Telegram shops failed: {e}")
         return []
 
-def create_pending_shop(name: str, email: str, password_hash: str) -> int | None:
-    """Create a new shop with status='pending' (awaiting admin approval)."""
-    import re, time
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") + f"-{int(time.time()) % 100000}"
+TRIAL_DAYS_DEFAULT = 14
+TRIAL_MESSAGES_LIMIT = 500
+TRIAL_CHANNELS_LIMIT = 1
+
+
+def create_active_shop_with_trial(
+    name: str,
+    email: str,
+    password_hash: str,
+    trial_days: int = TRIAL_DAYS_DEFAULT,
+) -> int | None:
+    """Self-service registration: create shop status='active' + trial subscription atomically.
+
+    Both INSERTs run in one DB connection with a single commit, so a subscription failure
+    rolls back the shop creation — the caller never sees a half-provisioned shop.
+    """
+    import re
+    import secrets
+    from db import get_db
+
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "shop"
+    slug = f"{base}-{secrets.token_hex(4)}"
     ph = db_placeholder()
+    days = int(trial_days) if trial_days and int(trial_days) > 0 else TRIAL_DAYS_DEFAULT
+    conn = get_db()
     try:
         if USE_POSTGRES:
-            row = execute_write(
+            cur = conn.execute(
                 f"""
                 INSERT INTO shops (name, slug, owner_email, owner_password_hash, status)
                 VALUES ({ph}, {ph}, {ph}, {ph}, {ph})
                 RETURNING id
                 """,
-                (name, slug, email, password_hash, "pending"),
-                fetch_one=True,
+                (name, slug, email, password_hash, "active"),
             )
-            return row["id"] if row else None
+            row = cur.fetchone()
+            shop_id = row["id"] if row else None
         else:
-            execute_write(
+            cur = conn.execute(
                 f"INSERT INTO shops (name, slug, owner_email, owner_password_hash, status) VALUES ({ph},{ph},{ph},{ph},{ph})",
-                (name, slug, email, password_hash, "pending"),
+                (name, slug, email, password_hash, "active"),
             )
-            return fetch_one_value(f"SELECT id FROM shops WHERE slug = {ph}", (slug,))
+            shop_id = cur.lastrowid
+        if not shop_id:
+            conn.rollback()
+            return None
+        if USE_POSTGRES:
+            conn.execute(
+                f"""
+                INSERT INTO subscriptions
+                    (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at, period_starts_at)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, NOW() + INTERVAL '{days} days', NOW())
+                """,
+                (shop_id, "trial", "active", TRIAL_MESSAGES_LIMIT, TRIAL_CHANNELS_LIMIT),
+            )
+        else:
+            conn.execute(
+                f"""
+                INSERT INTO subscriptions
+                    (shop_id, plan, status, messages_limit, channels_limit, trial_ends_at, period_starts_at)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, datetime('now', '+{days} days'), datetime('now'))
+                """,
+                (shop_id, "trial", "active", TRIAL_MESSAGES_LIMIT, TRIAL_CHANNELS_LIMIT),
+            )
+        conn.commit()
+        return shop_id
     except Exception as e:
-        log.error(f"Create pending shop failed: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        log.error("Create active shop with trial failed: %s", e)
         return None
+    finally:
+        conn.close()
 
 
 def update_shop_status(shop_id: int, status: str) -> bool:

@@ -3,14 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SaleBot Admin</title>
-  <link rel="stylesheet" href="/admin/static/styles.css?v=8">
+  <title>Vendly — Админка</title>
+  <link rel="stylesheet" href="/admin/static/styles.css?v=11">
 </head>
 <body>
   <div id="login-screen" class="login-screen hidden">
     <form id="login-form" class="login-card">
-      <h1>SaleBot</h1>
-      <p>Вход в админ-панель платформы</p>
+      <div class="login-logo"><div class="logo-mark"></div><span>Vendly</span></div>
+      <h1>Админ-панель</h1>
+      <p>Управление платформой и магазинами</p>
       <label>Email
         <input type="email" id="email-input" placeholder="admin@example.com" required autocomplete="email">
       </label>
@@ -25,141 +26,80 @@
   <div id="app" class="app hidden">
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-mark">S</span>
+        <div class="logo-mark"></div>
         <div>
-          <strong>SaleBot</strong>
-          <small>Admin panel</small>
+          <strong>Vendly</strong>
+          <small>Админ-панель</small>
         </div>
       </div>
       <nav class="nav">
-        <button class="nav-item active" data-tab="overview">Обзор</button>
-        <button class="nav-item" data-tab="products">Каталог</button>
-        <button class="nav-item" data-tab="orders">Заказы</button>
-        <button class="nav-item" data-tab="import">Импорт CSV</button>
-        <button class="nav-item" data-tab="messages">Сообщения</button>
-        <button class="nav-item" data-tab="applications">Заявки <span id="apps-badge" class="apps-badge hidden"></span></button>
-        <button class="nav-item" data-tab="shops">Магазины</button>
-        <button class="nav-item" data-tab="email">Email</button>
+        <button class="nav-item active" data-tab="overview">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+          Обзор
+        </button>
+        <button class="nav-item" data-tab="applications" hidden style="display:none">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Заявки <span id="apps-badge" class="apps-badge hidden"></span>
+        </button>
+        <button class="nav-item" data-tab="shops">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11a1 1 0 001 1h14a1 1 0 001-1V9"/><path d="M9 21V13h6v8"/></svg>
+          Магазины
+        </button>
+        <button class="nav-item" data-tab="email">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>
+          Email
+        </button>
       </nav>
       <div class="sidebar-foot">
         <span id="db-badge" class="badge">—</span>
-        <button id="logout-btn" class="ghost-btn" type="button">Выйти</button>
+        <button id="logout-btn" class="ghost-btn" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Выйти
+        </button>
       </div>
     </aside>
 
-    <main class="content">
+    <main class="main-content">
       <header class="topbar">
-        <div>
+        <div class="topbar-title">
           <h1 id="page-title">Обзор</h1>
-          <p id="page-subtitle">Статистика магазина и активность бота</p>
+          <p id="page-subtitle">Статистика платформы и активность ботов</p>
         </div>
         <div class="topbar-actions">
-          <a id="export-link" class="btn secondary" href="#">Экспорт CSV</a>
           <button id="refresh-btn" class="btn" type="button">Обновить</button>
+          <button id="theme-toggle-btn" class="topbar-btn" title="Переключить тему" type="button">☀</button>
+          <div class="topbar-avatar" title="Администратор">A</div>
         </div>
       </header>
+
+      <div class="content-area">
 
       <!-- ОБЗОР -->
       <section id="tab-overview" class="tab active">
         <div id="stats-grid" class="stats-grid"></div>
-        <div class="panel">
-          <div class="panel-head">
-            <h2>Последние сообщения</h2>
+        <div class="overview-2col">
+          <div class="panel">
+            <div class="panel-head"><h2>Магазины по тарифам</h2></div>
+            <div id="plans-bars" class="a-bars"></div>
           </div>
-          <div id="overview-messages" class="message-list"></div>
+          <div class="panel">
+            <div class="panel-head"><h2>Магазины по статусу</h2></div>
+            <div id="status-bars" class="a-bars"></div>
+          </div>
         </div>
-      </section>
-
-      <!-- КАТАЛОГ -->
-      <section id="tab-products" class="tab">
         <div class="panel">
           <div class="panel-head">
-            <h2>Каталог</h2>
-            <div class="panel-head-right">
-              <input id="products-search" class="search-input" type="search" placeholder="Поиск по бренду, модели…">
-              <span id="products-count" class="muted"></span>
-            </div>
+            <h2>Последние магазины</h2>
+            <span id="recent-shops-meta" class="muted"></span>
           </div>
           <div class="table-wrap">
             <table>
-              <thead>
-                <tr>
-                  <th>Бренд</th>
-                  <th>Модель</th>
-                  <th>Цвет</th>
-                  <th>Размер</th>
-                  <th>Кол-во</th>
-                  <th>Цена ₸</th>
-                  <th>Категория</th>
-                </tr>
-              </thead>
-              <tbody id="products-body"></tbody>
+              <thead><tr>
+                <th>Магазин</th><th>Email</th><th>Тариф</th><th>Статус</th><th>Регистрация</th>
+              </tr></thead>
+              <tbody id="recent-shops-body"></tbody>
             </table>
           </div>
-          <div class="pager">
-            <button id="products-prev" class="btn secondary" type="button">Назад</button>
-            <span id="products-page-info" class="muted"></span>
-            <button id="products-next" class="btn secondary" type="button">Вперёд</button>
-          </div>
-        </div>
-        <p class="edit-hint muted">Нажмите на цену или количество чтобы изменить. Enter — сохранить, Esc — отмена.</p>
-      </section>
-
-      <!-- ЗАКАЗЫ -->
-      <section id="tab-orders" class="tab">
-        <div class="panel">
-          <div class="panel-head">
-            <h2>Заказы</h2>
-            <span id="orders-count" class="muted"></span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Канал</th>
-                  <th>Клиент</th>
-                  <th>Имя</th>
-                  <th>Телефон</th>
-                  <th>Интерес</th>
-                  <th>Статус</th>
-                  <th>Дата</th>
-                </tr>
-              </thead>
-              <tbody id="orders-body"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- ИМПОРТ CSV -->
-      <section id="tab-import" class="tab">
-        <div class="import-grid">
-          <div class="panel">
-            <div class="panel-head"><h2>Загрузка CSV</h2></div>
-            <div class="panel-body">
-              <p class="muted">Формат: brand, model, colorway, size, quantity, price, category, gender</p>
-              <input type="file" id="csv-file" accept=".csv">
-              <div class="btn-row">
-                <button id="preview-btn" class="btn secondary" type="button">Предпросмотр</button>
-                <button id="import-btn" class="btn" type="button">Обновить каталог</button>
-                <button id="replace-btn" class="btn danger" type="button">Заменить полностью</button>
-              </div>
-              <a id="template-link" class="link" href="#">Скачать шаблон CSV</a>
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Результат</h2></div>
-            <div id="import-result" class="panel-body muted">Выберите файл и нажмите «Предпросмотр»</div>
-          </div>
-        </div>
-      </section>
-
-      <!-- СООБЩЕНИЯ -->
-      <section id="tab-messages" class="tab">
-        <div class="panel">
-          <div class="panel-head"><h2>История диалогов</h2></div>
-          <div id="messages-list" class="message-list"></div>
         </div>
       </section>
 
@@ -242,6 +182,7 @@
           </div>
         </div>
       </section>
+      </div><!-- /.content-area -->
     </main>
   </div>
 
@@ -289,6 +230,27 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/admin/static/app.js?v=8"></script>
+
+  <!-- Theme toggle (independent of app.js) -->
+  <script>
+  (function(){
+    if (localStorage.getItem('sb_theme') === 'dark') document.body.classList.add('sb-dark');
+    function updateIcon() {
+      var btn = document.getElementById('theme-toggle-btn');
+      if (btn) btn.textContent = document.body.classList.contains('sb-dark') ? '☾' : '☀';
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+      updateIcon();
+      var btn = document.getElementById('theme-toggle-btn');
+      if (btn) btn.addEventListener('click', function() {
+        document.body.classList.toggle('sb-dark');
+        localStorage.setItem('sb_theme', document.body.classList.contains('sb-dark') ? 'dark' : 'light');
+        updateIcon();
+      });
+    });
+  })();
+  </script>
+
+  <script src="/admin/static/app.js?v=11"></script>
 </body>
 </html>

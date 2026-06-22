@@ -23,13 +23,13 @@ from products import (
     update_product,
     validate_product_csv,
 )
-from email_service import send_password_reset, send_shop_registered
+from email_service import send_password_reset, send_shop_welcome
 from shops import (
     clear_moysklad_token,
     clear_shop_tg_token,
     consume_reset_token,
+    create_active_shop_with_trial,
     create_password_reset_token,
-    create_pending_shop,
     generate_sync_api_key,
     get_shop_by_email,
     get_shop_by_id,
@@ -57,6 +57,10 @@ _login_attempts: dict[str, list[float]] = _defaultdict(list)
 _LOGIN_MAX = 10
 _LOGIN_WINDOW = 60
 
+_register_attempts: dict[str, list[float]] = _defaultdict(list)
+_REGISTER_MAX = 5
+_REGISTER_WINDOW = 600
+
 
 def _check_login_rate(ip: str) -> None:
     now = _time.time()
@@ -65,6 +69,15 @@ def _check_login_rate(ip: str) -> None:
     _login_attempts[ip] = attempts
     if len(attempts) > _LOGIN_MAX:
         raise HTTPException(429, "Слишком много попыток входа. Подождите минуту.")
+
+
+def _check_register_rate(ip: str) -> None:
+    now = _time.time()
+    attempts = [t for t in _register_attempts[ip] if now - t < _REGISTER_WINDOW]
+    attempts.append(now)
+    _register_attempts[ip] = attempts
+    if len(attempts) > _REGISTER_MAX:
+        raise HTTPException(429, "Слишком много регистраций с этого адреса. Попробуйте позже.")
 
 
 # ── Auth dependency ────────────────────────────────────────────────────────────
@@ -122,12 +135,15 @@ class OrderPatch(BaseModel):
 # ── Public routes ──────────────────────────────────────────────────────────────
 
 @router.post("/register")
-async def shop_register(body: RegisterRequest):
-    """Public self-service registration. Creates shop with status='pending' awaiting approval."""
+async def shop_register(body: RegisterRequest, request: Request):
+    """Public self-service registration. Auto-provisions an active shop + 14-day trial and returns a JWT
+    so the dashboard logs in immediately (no manual approval step)."""
     try:
+        _check_register_rate(request.client.host if request.client else "unknown")
         if len(body.password) < 8:
             raise HTTPException(400, "Пароль должен быть не менее 8 символов")
-        if len(body.shop_name.strip()) < 2:
+        shop_name = body.shop_name.strip()
+        if len(shop_name) < 2:
             raise HTTPException(400, "Введите название магазина")
         if not body.accepted_terms:
             raise HTTPException(400, "Необходимо принять условия оферты и политику конфиденциальности")
@@ -135,13 +151,18 @@ async def shop_register(body: RegisterRequest):
         if existing:
             raise HTTPException(409, "Этот email уже зарегистрирован")
         pwd_hash = hash_password(body.password)
-        shop_id = create_pending_shop(body.shop_name.strip(), body.email, pwd_hash)
+        shop_id = create_active_shop_with_trial(shop_name, body.email, pwd_hash)
         if not shop_id:
             raise HTTPException(500, "Не удалось создать магазин, попробуйте позже")
-        send_shop_registered(body.shop_name.strip(), body.email)
+        subscription = get_shop_subscription_detail(shop_id)
+        send_shop_welcome(shop_name, body.email, subscription)
+        token = create_shop_token(shop_id)
         return {
             "ok": True,
-            "message": "Заявка отправлена. После проверки вы получите доступ к кабинету.",
+            "token": token,
+            "shop_id": shop_id,
+            "name": shop_name,
+            "subscription": subscription,
         }
     except HTTPException:
         raise
