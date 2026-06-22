@@ -25,6 +25,7 @@ ADMIN_DIR     = Path(__file__).parent / "admin"
 STORE_DIR     = Path(__file__).parent / "store"
 DASHBOARD_DIR = Path(__file__).parent / "dashboard"
 LANDING_DIR   = Path(__file__).parent / "landing"
+SHARED_DIR    = Path(__file__).parent / "shared"
 
 
 @asynccontextmanager
@@ -45,7 +46,7 @@ async def lifespan(app: FastAPI):
     close_db_pool()
 
 
-app = FastAPI(title="SaleBot", lifespan=lifespan)
+app = FastAPI(title="Vendly", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS else ["*"],
@@ -98,6 +99,8 @@ if STORE_DIR.exists():
     app.mount("/store/static", StaticFiles(directory=str(STORE_DIR)), name="store_static")
 if DASHBOARD_DIR.exists():
     app.mount("/dashboard/static", StaticFiles(directory=str(DASHBOARD_DIR)), name="dashboard_static")
+if SHARED_DIR.exists():
+    app.mount("/shared/static", StaticFiles(directory=str(SHARED_DIR)), name="shared_static")
 
 if __name__ == "__main__":
     import uvicorn

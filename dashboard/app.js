@@ -121,8 +121,7 @@ function switchTab(name) {
   if (name === "analytics" || name === "overview") {
     setTimeout(() => Object.values(_charts).forEach(c => c?.resize?.()), 60);
   }
-  // Always reset bot tab to gallery when switching to it
-  if (name === "bot") showAgentGallery();
+  if (name === "bot" && currentShop) showAgentCard(currentShop);
 }
 
 // ── Stats ──────────────────────────────────────────────────────────────────────
@@ -558,8 +557,6 @@ function fillBotSettings(shop) {
   renderTgStatus(shop.has_tg_bot, shop.tg_bot_username || null, shop);
   renderMsStatus(shop.has_moysklad || false, shop.sync_api_key || null);
   renderSyncApiKey(shop.sync_api_key || null);
-  // Keep builder state in sync
-  renderBuilderSyncKey(shop.sync_api_key || null);
 }
 
 function renderTgNotifyHint(shop) {
@@ -646,87 +643,11 @@ function renderSyncApiKey(key) {
   if (pwdEl) pwdEl.textContent = key ? "••••••" + key.slice(-4) : "— (сгенерируйте ключ выше)";
 }
 
-function renderBuilderSyncKey(key) {
-  const el = document.getElementById("bldr-sync-key-display");
-  if (!el) return;
-  if (key) {
-    const masked = "••••••" + key.slice(-4);
-    el.innerHTML = `<code class="mono" style="font-size:14px;background:var(--soft);padding:8px 12px;border-radius:8px;display:block;color:var(--text)">${esc(masked)}</code>`;
-  } else {
-    el.innerHTML = `<p class="muted small">Ключ не сгенерирован</p>`;
-  }
-}
-
 function toggleKeyVisibility(inputId, btn) {
   const input = document.getElementById(inputId);
   if (!input) return;
   if (input.type === "password") { input.type = "text";     btn.textContent = "🙈"; }
   else                           { input.type = "password"; btn.textContent = "👁"; }
-}
-
-function _setBuilderTgState(connected, username) {
-  const badge     = document.getElementById("bldr-tg-badge");
-  const connBlk   = document.getElementById("bldr-tg-connected-block");
-  const connectBlk = document.getElementById("bldr-tg-connect-block");
-  if (!badge) return;
-  if (connected) {
-    badge.textContent = "Подключён"; badge.className = "status-badge badge-active";
-    connBlk?.classList.remove("hidden"); connectBlk?.classList.add("hidden");
-    const un = document.getElementById("bldr-tg-username-display");
-    if (un) un.textContent = username ? `@${username}` : "Агент активен";
-  } else {
-    badge.textContent = "Не подключён"; badge.className = "status-badge badge-pending";
-    connBlk?.classList.add("hidden"); connectBlk?.classList.remove("hidden");
-  }
-  _updatePreview();
-}
-
-function _setBuilderMsState(connected, info) {
-  const badge      = document.getElementById("bldr-ms-badge");
-  const connInfo   = document.getElementById("bldr-ms-connected-info");
-  const connForm   = document.getElementById("bldr-ms-connect-form");
-  if (!badge) return;
-  if (connected) {
-    badge.textContent = "Подключён"; badge.className = "status-badge badge-active";
-    connInfo?.classList.remove("hidden"); connForm?.classList.add("hidden");
-    const infoEl = document.getElementById("bldr-ms-info-text");
-    if (infoEl && info) infoEl.textContent = info;
-  } else {
-    badge.textContent = "Не подключён"; badge.className = "status-badge badge-pending";
-    connInfo?.classList.add("hidden"); connForm?.classList.remove("hidden");
-  }
-}
-
-function fillBuilderFromShop(shop) {
-  const nameEl = document.getElementById("bldr-name");
-  const roleEl = document.getElementById("bldr-role");
-  if (nameEl) nameEl.value = shop.name || "";
-  if (roleEl) roleEl.value = shop.bot_role || "";
-  const toneMap = {
-    "Общайся дружелюбно и с заботой. Используй эмодзи. Помогай клиентам выбрать товар.": "friendly",
-    "Общайся вежливо и профессионально. Придерживайся делового тона.": "formal",
-    "Отвечай кратко и по делу. Без лишних слов и эмодзи.": "concise",
-  };
-  const detectedTone = toneMap[shop.groq_system_prompt?.trim()] || "friendly";
-  document.querySelectorAll(".tone-btn").forEach(btn => {
-    btn.classList.toggle("sel", btn.dataset.tone === detectedTone);
-  });
-  // Step 1: МойСклад state
-  _setBuilderMsState(shop.has_moysklad || false, shop.has_moysklad ? "Каталог подключён" : "");
-  // Step 2: Groq key hint
-  const groqHint = document.getElementById("bldr-groq-key-hint");
-  const groqInput = document.getElementById("bldr-groq-key");
-  if (groqInput) groqInput.value = "";
-  if (groqHint) groqHint.textContent = shop.has_own_groq_key
-    ? "Свой ключ подключён (•••• скрыт). Введите новый чтобы заменить."
-    : "Если не указан — используется ключ платформы. После сохранения ключ не возвращается.";
-  // Step 2: Sync key
-  renderBuilderSyncKey(shop.sync_api_key || null);
-  // Step 3: Telegram state + notify ID
-  _setBuilderTgState(shop.has_tg_bot || false, shop.tg_bot_username || null);
-  const notifyEl = document.getElementById("bldr-tg-notify-id");
-  if (notifyEl) notifyEl.value = shop.owner_telegram_chat_id || "";
-  _updatePreview();
 }
 
 // ── МойСклад connect ───────────────────────────────────────────────────────────
@@ -795,7 +716,6 @@ document.getElementById("generate-api-key-btn").addEventListener("click", async 
   try {
     const r = await api("/shop/sync-api-key", { method: "POST" });
     renderSyncApiKey(r.api_key);
-    renderBuilderSyncKey(r.api_key);
     currentShop = await api("/shop/me");
     showToast("API ключ сгенерирован", "success");
   } catch (err) { showToast(err.message, "error"); }
@@ -1118,96 +1038,8 @@ function renderAnalyticsCatBars(analyticsData) {
   }).join("");
 }
 
-// ── Agent card / builder ────────────────────────────────────────────────────────
-let _builderStep = 0;
-const BUILDER_STEPS = ["bstep-0","bstep-1","bstep-2","bstep-3","bstep-4"];
-
-function setBuilderStep(n) {
-  _builderStep = n;
-  BUILDER_STEPS.forEach((id, i) => {
-    const el = document.getElementById(id);
-    if (el) el.classList.toggle("active", i === n);
-  });
-  for (let i = 0; i < 5; i++) {
-    const circle = document.getElementById("sc-" + i);
-    const label  = document.getElementById("sl-" + i);
-    if (!circle) continue;
-    if (i < n)       { circle.className = "step-circle s-done";   circle.textContent = "✓"; }
-    else if (i === n){ circle.className = "step-circle s-active";  circle.textContent = String(i+1); }
-    else             { circle.className = "step-circle s-idle";    circle.textContent = String(i+1); }
-    if (label) label.className = "step-lbl" + (i === n ? " s-active" : "");
-  }
-  const prevBtn = document.getElementById("builder-prev-btn");
-  const nextBtn = document.getElementById("builder-next-btn");
-  if (prevBtn) prevBtn.style.visibility = n === 0 ? "hidden" : "visible";
-  if (nextBtn) {
-    nextBtn.textContent = n === BUILDER_STEPS.length - 1 ? "🚀 Запустить" : "Далее →";
-  }
-  if (n === 4) _updateLaunchReview();
-  _updatePreview();
-}
-
-function _updatePreview() {
-  const name  = document.getElementById("bldr-name")?.value.trim() || "Агент";
-  const tone  = document.querySelector(".tone-btn.sel")?.dataset.tone || "friendly";
-  const tLbl  = { friendly:"Дружелюбный", formal:"Деловой", concise:"Лаконичный" }[tone] || tone;
-  const reps  = {
-    friendly: "Конечно! Расскажите, что вас интересует? Помогу подобрать лучший вариант 😊",
-    formal:   "Добрый день. Опишите ваш запрос, готов помочь с подбором.",
-    concise:  "Что именно вас интересует? Уточните запрос.",
-  };
-  const n = document.getElementById("preview-agent-name");  if (n) n.textContent = name;
-  const t = document.getElementById("preview-agent-tone");  if (t) t.textContent = `${tLbl} · Онлайн`;
-  const r = document.getElementById("preview-ai-reply");    if (r) r.textContent = reps[tone] || reps.friendly;
-  const tags = document.getElementById("preview-channels-tags");
-  if (tags) {
-    const tgBadge = document.getElementById("bldr-tg-badge");
-    const tgOk = tgBadge?.classList.contains("badge-active");
-    tags.innerHTML = tgOk
-      ? `<span class="ptag">✈️ Telegram</span>`
-      : `<span class="ptag" style="color:var(--text4)">Канал не подключён</span>`;
-  }
-}
-
-function _updateLaunchReview() {
-  const el = document.getElementById("launch-review");
-  if (!el) return;
-  const name  = document.getElementById("bldr-name")?.value.trim() || "—";
-  const role  = document.getElementById("bldr-role")?.value.trim() || "—";
-  const tone  = document.querySelector(".tone-btn.sel")?.dataset.tone || "friendly";
-  const tLbl  = { friendly:"😊 Дружелюбный", formal:"🎩 Деловой", concise:"⚡ Лаконичный" }[tone] || tone;
-  const tools = [...document.querySelectorAll(".tool-card.sel")].map(c => c.querySelector(".tool-name")?.textContent).filter(Boolean);
-  const tgOk  = document.getElementById("bldr-tg-badge")?.classList.contains("badge-active");
-  const msOk  = document.getElementById("bldr-ms-badge")?.classList.contains("badge-active");
-  el.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
-      <div><span style="color:var(--text3);display:inline-block;width:130px">Имя:</span><strong>${esc(name)}</strong></div>
-      <div><span style="color:var(--text3);display:inline-block;width:130px">Роль:</span>${esc(role)}</div>
-      <div><span style="color:var(--text3);display:inline-block;width:130px">Тон:</span>${tLbl}</div>
-      <div><span style="color:var(--text3);display:inline-block;width:130px">База знаний:</span>${msOk ? "МойСклад ✓" : "CSV / ручной каталог"}</div>
-      <div><span style="color:var(--text3);display:inline-block;width:130px">Инструменты:</span>${tools.join(", ")||"нет"}</div>
-      <div><span style="color:var(--text3);display:inline-block;width:130px">Telegram:</span>${tgOk ? "✅ Подключён" : "Не подключён"}</div>
-    </div>
-  `;
-}
-
-let _galleryStats = null;
-let _galleryInsights = null;
-
-function _switchBotView(show) {
-  const views = ["agent-gallery-view", "agent-card-view", "agent-builder-view"];
-  views.forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    if (id === show) el.classList.remove("hidden");
-    else             el.classList.add("hidden");
-  });
-}
-
-function showAgentGallery() { showAgentCard(currentShop || {}); }
-
+// ── Agent card view ────────────────────────────────────────────────────────────
 function showAgentCard(me) {
-  _switchBotView("agent-card-view");
   const nameEl   = document.getElementById("agent-display-name");
   const descEl   = document.getElementById("agent-display-desc");
   const statusEl = document.getElementById("agent-display-status");
@@ -1222,232 +1054,12 @@ function showAgentCard(me) {
   }
 }
 
-function showAgentBuilder() { showAgentGallery(); }
-
-function renderAgentGallery(me, stats, insights) {
-  _galleryStats    = stats;
-  _galleryInsights = insights;
-  const grid    = document.getElementById("agents-grid");
-  const counter = document.getElementById("gallery-agents-counter");
-  if (!grid) return;
-  const hasAgent = !!(me && me.bot_role);
-  const isActive = !!(me && me.has_tg_bot);
-  if (counter) {
-    counter.textContent = hasAgent
-      ? (isActive ? "1 агент работает" : "1 агент · не активен")
-      : "Нет агентов";
-  }
-  if (!hasAgent) {
-    grid.innerHTML = `
-      <div class="agents-empty">
-        <div style="font-size:52px;margin-bottom:14px">🤖</div>
-        <div style="font-size:16px;font-weight:600;margin-bottom:6px;color:var(--text)">Агентов ещё нет</div>
-        <div style="font-size:14px;color:var(--text3);margin-bottom:20px">Создайте первого ИИ-агента для вашего бизнеса</div>
-        <button class="btn btn-accent" onclick="document.getElementById('new-agent-btn').click()">+ Создать агента</button>
-      </div>
-    `;
-    return;
-  }
-  const tags = [];
-  if (me.has_tg_bot)   tags.push({icon:"✈️", lbl:"Telegram"});
-  if (me.has_moysklad) tags.push({icon:"🗂", lbl:"МойСклад"});
-  if (me.sync_api_key) tags.push({icon:"⚡", lbl:"API"});
-  tags.push({icon:"📚", lbl:"FAQ"});
-  const dialogs  = stats?.conversations      ?? 0;
-  const messages = stats?.messages           ?? 0;
-  const conv     = insights?.conversion_pct  ?? 0;
-  grid.innerHTML = `
-    <div class="agent-card-item" id="gallery-agent-main">
-      <div class="aci-top">
-        <div class="aci-avatar">🤖</div>
-        <span class="agent-pill ${isActive ? "on" : "off"}">
-          ${isActive ? '<span class="pulse-dot"></span>&nbsp;Активен' : '○&nbsp;Не активен'}
-        </span>
-      </div>
-      <div class="aci-name">${esc(me.name || "Агент")}</div>
-      <div class="aci-desc">${esc(me.bot_role || "ИИ-консультант")}</div>
-      <div class="aci-tags">${tags.map(t => `<span class="agent-tag">${t.icon} ${t.lbl}</span>`).join("")}</div>
-      <div class="aci-metrics">
-        <div class="acm-item">
-          <div class="acm-val">${dialogs.toLocaleString("ru-RU")}</div>
-          <div class="acm-lbl">диалогов</div>
-        </div>
-        <div class="acm-item">
-          <div class="acm-val">${messages.toLocaleString("ru-RU")}</div>
-          <div class="acm-lbl">сообщений</div>
-        </div>
-        <div class="acm-item acm-accent">
-          <div class="acm-val">${conv}%</div>
-          <div class="acm-lbl">конверсия</div>
-        </div>
-      </div>
-    </div>
-  `;
-  document.getElementById("gallery-agent-main")?.addEventListener("click", () => {
-    showAgentCard(me);
-    updateAgentMetrics(_galleryStats, _galleryInsights);
-  });
-}
-
 function updateAgentMetrics(stats, insights) {
   const s = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   s("agent-m-dialogs",  (stats?.conversations??0).toLocaleString("ru-RU"));
   s("agent-m-messages", (stats?.messages??0).toLocaleString("ru-RU"));
   s("agent-m-orders",   (stats?.orders??0).toLocaleString("ru-RU"));
   if (insights) s("agent-m-conv", (insights.conversion_pct??0) + "%");
-}
-
-async function launchAgent() {
-  const name = document.getElementById("bldr-name")?.value.trim() || "";
-  const role = document.getElementById("bldr-role")?.value.trim() || "";
-  const tone = document.querySelector(".tone-btn.sel")?.dataset.tone || "friendly";
-  const tonePrompts = {
-    friendly: "Общайся дружелюбно и с заботой. Используй эмодзи. Помогай клиентам выбрать товар.",
-    formal:   "Общайся вежливо и профессионально. Придерживайся делового тона.",
-    concise:  "Отвечай кратко и по делу. Без лишних слов и эмодзи.",
-  };
-  const nameInput   = document.getElementById("shop-name-input");
-  const roleInput   = document.getElementById("bot-role-input");
-  const promptInput = document.getElementById("bot-prompt-input");
-  if (nameInput && name)   nameInput.value = name;
-  if (roleInput && role)   roleInput.value = role;
-  if (promptInput)         promptInput.value = tonePrompts[tone] || "";
-  try {
-    const body = {};
-    if (name) body.name = name;
-    if (role) body.bot_role = role;
-    body.groq_system_prompt = tonePrompts[tone] || "";
-    // Save Groq key if provided (clear input after save — never reflect back)
-    const groqKey = document.getElementById("bldr-groq-key")?.value.trim() || "";
-    if (groqKey) body.groq_api_key = groqKey;
-    // Save Telegram notify ID
-    const notifyId = document.getElementById("bldr-tg-notify-id")?.value.trim() || null;
-    if (notifyId) body.owner_telegram_chat_id = notifyId;
-    await patchApi("/shop/settings", body);
-    const groqInput = document.getElementById("bldr-groq-key");
-    if (groqInput) groqInput.value = "";
-    currentShop = await api("/shop/me");
-    fillBotSettings(currentShop);
-    renderAgentGallery(currentShop, _galleryStats, _galleryInsights);
-    showAgentGallery();
-    showToast("Агент успешно запущен! 🚀", "success");
-  } catch (err) {
-    showToast(err.message, "error");
-  }
-}
-
-function initAgentBuilder() {
-  document.getElementById("builder-next-btn")?.addEventListener("click", () => {
-    if (_builderStep < BUILDER_STEPS.length - 1) setBuilderStep(_builderStep + 1);
-    else launchAgent();
-  });
-  document.getElementById("builder-prev-btn")?.addEventListener("click", () => {
-    if (_builderStep > 0) setBuilderStep(_builderStep - 1);
-  });
-  document.querySelectorAll(".step-item[data-goto]").forEach(el =>
-    el.addEventListener("click", () => {
-      const n = parseInt(el.dataset.goto, 10);
-      if (n <= _builderStep) setBuilderStep(n);
-    })
-  );
-  document.querySelectorAll(".tone-btn").forEach(btn =>
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tone-btn").forEach(b => b.classList.remove("sel"));
-      btn.classList.add("sel");
-      _updatePreview();
-    })
-  );
-  document.querySelectorAll(".tool-card").forEach(card =>
-    card.addEventListener("click", () => {
-      card.classList.toggle("sel");
-      card.querySelector(".tool-check").textContent = card.classList.contains("sel") ? "✓" : "";
-    })
-  );
-  document.getElementById("bldr-name")?.addEventListener("input", _updatePreview);
-  document.getElementById("edit-agent-btn")?.addEventListener("click", showAgentBuilder);
-  document.getElementById("new-agent-btn")?.addEventListener("click", () => {
-    showAgentBuilder();
-    setBuilderStep(0);
-  });
-  document.getElementById("back-to-gallery-btn")?.addEventListener("click", showAgentGallery);
-
-  // Step 1: CSV upload
-  document.getElementById("bldr-csv")?.addEventListener("change", (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const st = document.getElementById("bldr-kb-status");
-    if (st) { st.style.display = ""; document.getElementById("bldr-kb-name").textContent = file.name; document.getElementById("bldr-kb-meta").textContent = `${(file.size/1024).toFixed(1)} KB`; }
-  });
-
-  // Step 1: МойСклад verify
-  document.getElementById("bldr-ms-verify-btn")?.addEventListener("click", async () => {
-    const token = document.getElementById("bldr-ms-token")?.value.trim();
-    const msgEl = document.getElementById("bldr-ms-status-msg");
-    if (!token) { if (msgEl) { msgEl.textContent = "Введите токен"; msgEl.style.color = "var(--danger)"; } return; }
-    if (msgEl) { msgEl.textContent = "Проверяем..."; msgEl.style.color = "var(--text3)"; }
-    try {
-      const r = await api("/shop/moysklad-connect", { method: "POST", json: { token } });
-      document.getElementById("bldr-ms-token").value = "";
-      _setBuilderMsState(true, `${r.shop_name || ""} · ${r.in_stock || r.imported || 0} товаров`);
-      if (msgEl) msgEl.textContent = "";
-      showToast(`МойСклад подключён: ${r.in_stock || r.imported || 0} в наличии`, "success");
-      currentShop = await api("/shop/me");
-      renderBuilderSyncKey(currentShop.sync_api_key || null);
-    } catch (err) {
-      if (msgEl) { msgEl.textContent = err.message; msgEl.style.color = "var(--danger)"; }
-    }
-  });
-
-  document.getElementById("bldr-ms-disconnect-btn")?.addEventListener("click", async () => {
-    if (!confirm("Отключить МойСклад?")) return;
-    try {
-      await api("/shop/moysklad-connect", { method: "DELETE" });
-      _setBuilderMsState(false);
-      showToast("МойСклад отключён", "info");
-    } catch (err) { showToast(err.message, "error"); }
-  });
-
-  // Step 2: generate sync key
-  document.getElementById("bldr-gen-sync-key")?.addEventListener("click", async () => {
-    const hasKey = currentShop?.sync_api_key;
-    if (hasKey && !confirm("Сгенерировать новый ключ? Старый перестанет работать.")) return;
-    try {
-      const r = await api("/shop/sync-api-key", { method: "POST" });
-      renderBuilderSyncKey(r.api_key);
-      renderSyncApiKey(r.api_key);
-      currentShop = await api("/shop/me");
-      showToast("API ключ сгенерирован", "success");
-    } catch (err) { showToast(err.message, "error"); }
-  });
-
-  // Step 3: Telegram connect
-  document.getElementById("bldr-tg-connect-btn")?.addEventListener("click", async () => {
-    const token = document.getElementById("bldr-tg-token")?.value.trim();
-    const errEl = document.getElementById("bldr-tg-error");
-    if (errEl) errEl.classList.add("hidden");
-    if (!token) { if (errEl) { errEl.textContent = "Вставьте токен"; errEl.classList.remove("hidden"); } return; }
-    try {
-      const r = await api("/shop/bot-connect", { method: "POST", json: { tg_token: token } });
-      document.getElementById("bldr-tg-token").value = "";
-      _setBuilderTgState(true, r.bot_username);
-      currentShop = await api("/shop/me");
-      renderTgStatus(true, r.bot_username, currentShop);
-      showToast(`Агент @${r.bot_username || "?"} подключён!`, "success");
-    } catch (err) {
-      if (errEl) { errEl.textContent = err.message; errEl.classList.remove("hidden"); }
-    }
-  });
-
-  document.getElementById("bldr-tg-disconnect-btn")?.addEventListener("click", async () => {
-    if (!confirm("Отключить Telegram агента?")) return;
-    try {
-      await api("/shop/bot-connect", { method: "DELETE" });
-      _setBuilderTgState(false, null);
-      currentShop = await api("/shop/me");
-      renderTgStatus(false, null, currentShop);
-      showToast("Агент отключён", "info");
-    } catch (err) { showToast(err.message, "error"); }
-  });
 }
 
 // ── Load all ───────────────────────────────────────────────────────────────────
@@ -1488,13 +1100,8 @@ async function loadAll() {
     renderCatalog(products);
     renderOrders(orders);
     fillBotSettings(me);
-    // Agent tab: always show gallery as default view
-    renderAgentGallery(me, stats, insights);
-    showAgentGallery();
+    showAgentCard(me);
     updateAgentMetrics(stats, insights);
-    // Update catalog count for builder
-    const catCountEl = document.getElementById("bldr-catalog-count");
-    if (catCountEl) catCountEl.textContent = `Каталог: ${products.count || 0} товаров`;
     renderSubscription(sub);
     updateSidebarPlan(sub, me.name);
     renderPaymentInfo(payInfo);
@@ -1958,8 +1565,6 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
 })();
 
 // ── Init ───────────────────────────────────────────────────────────────────────
-initAgentBuilder();
-
 if (jwtToken) {
   enterApp().catch(() => {
     localStorage.removeItem("shop_token");

@@ -1,0 +1,37 @@
+/* ── Vendly design tokens — single source of truth, imported by both dashboard and admin ── */
+
+:root {
+  --bg: #f5f5f7;
+  --bg2: #fafafa;
+  --card: #ffffff;
+  --line: #e8e8ed;
+  --line2: #f0f0f2;
+  --text: #0d0d0d;
+  --text2: #2c2c2e;
+  --text3: #505053;
+  --text4: #7c7c80;
+  --soft: #f5f5f7;
+  --topbar-bg: rgba(245,245,247,0.85);
+  --accent: #3B82F6;
+  --accent-soft: rgba(59,130,246,0.12);
+  --accent-shadow: rgba(59,130,246,0.28);
+  --danger: #ef4444;
+  --danger-soft: rgba(239,68,68,0.09);
+  --success-bg: #eafaf1;
+  --success-text: #1f8a5b;
+}
+
+body.sb-dark {
+  --bg: #0e0e10;
+  --bg2: #161619;
+  --card: #1c1c20;
+  --line: #2e2e35;
+  --line2: #27272b;
+  --text: #f7f7f9;
+  --text2: #d8d8dc;
+  --text3: #aaaab0;
+  --text4: #7a7a80;
+  --soft: #2a2a30;
+  --topbar-bg: rgba(16,16,18,0.85);
+  --accent-soft: rgba(59,130,246,0.20);
+}

@@ -109,7 +109,7 @@ def send_password_reset(owner_email: str, reset_token: str) -> bool:
     html = f"""
     <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px;">
       <h2 style="color:#2563eb;">Сброс пароля</h2>
-      <p>Вы запросили сброс пароля для вашего аккаунта SaleBot.</p>
+      <p>Вы запросили сброс пароля для вашего аккаунта Vendly.</p>
       <p>Нажмите кнопку ниже, чтобы задать новый пароль. Ссылка действительна <strong>1 час</strong>.</p>
       <a href="{reset_url}"
          style="display:inline-block;margin-top:16px;padding:12px 24px;
@@ -121,7 +121,7 @@ def send_password_reset(owner_email: str, reset_token: str) -> bool:
       </p>
     </div>
     """
-    return _send(owner_email, "Сброс пароля SaleBot", html)
+    return _send(owner_email, "Сброс пароля Vendly", html)
 
 
 def send_shop_welcome(

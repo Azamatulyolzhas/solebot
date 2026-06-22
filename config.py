@@ -52,7 +52,7 @@ PAYMENT_DETAILS = os.getenv("PAYMENT_DETAILS", "")    # Extra payment instructio
 # Email notifications via Resend (https://resend.com)
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@solebot.app")
-EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "SaleBot")
+EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Vendly")
 SHOP_DASHBOARD_URL = os.getenv("SHOP_DASHBOARD_URL", "")
 
 # CORS — comma-separated list of allowed origins. Empty in dev means "allow all without credentials".

@@ -402,7 +402,7 @@ async def admin_email_test(body: EmailTestRequest, request: Request):
         raise HTTPException(400, "RESEND_API_KEY не настроен")
     ok, err = send_email(
         body.to,
-        "Тест SaleBot",
+        "Тест Vendly",
         "<p>Если вы видите это письмо — email настроен правильно.</p>",
     )
     if not ok:
