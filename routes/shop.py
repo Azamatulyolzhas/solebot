@@ -699,14 +699,12 @@ async def shop_sandbox_chat(body: SandboxChatRequest, shop: dict = Depends(requi
 
 @router.get("/payment-info")
 async def shop_payment_info(_: dict = Depends(get_current_shop)):
+    """Payment requisites only — pricing is intentionally not exposed yet.
+    Tiers will be re-added when plan upgrade self-service ships."""
     from config import PAYMENT_DETAILS, PAYMENT_KASPI
     return {
         "kaspi": PAYMENT_KASPI,
         "details": PAYMENT_DETAILS,
-        "plans": [
-            {"id": "basic", "name": "Basic", "price": "$29/мес", "messages": 2000},
-            {"id": "pro",   "name": "Pro",   "price": "$79/мес", "messages": None},
-        ],
     }
 
 

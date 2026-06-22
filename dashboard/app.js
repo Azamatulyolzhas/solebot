@@ -891,19 +891,7 @@ function renderSubscription(sub) {
         ${ends ? `<div class="sub-detail"><div class="label">Действует до</div><div class="value" style="font-size:15px">${new Date(ends).toLocaleDateString("ru-RU")}</div></div>` : ""}
       </div>
       <div class="payment-info">
-        <h3>Как оплатить</h3>
-        <div class="payment-plans">
-          <div class="payment-plan">
-            <div class="plan-name">Basic</div>
-            <div class="plan-price">$29 / мес</div>
-            <div class="plan-desc">2 000 сообщений</div>
-          </div>
-          <div class="payment-plan payment-plan-featured">
-            <div class="plan-name">Pro</div>
-            <div class="plan-price">$79 / мес</div>
-            <div class="plan-desc">Безлимит</div>
-          </div>
-        </div>
+        <h3>Продление тарифа</h3>
         <div id="payment-details-block"></div>
       </div>
     </div>
