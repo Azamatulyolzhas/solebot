@@ -2,7 +2,7 @@ import logging
 import time as _time
 from collections import defaultdict as _defaultdict
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 
 from ai import ask_ai
@@ -81,15 +81,37 @@ async def public_catalog(category: str = "", q: str = ""):
     }
 
 
+@router.get("/api/support")
+async def public_support():
+    """Public contact info for the footer. Hidden if both env vars unset."""
+    from config import SUPPORT_EMAIL, SUPPORT_TELEGRAM
+    return {
+        "email": SUPPORT_EMAIL or None,
+        "telegram": SUPPORT_TELEGRAM or None,
+    }
+
+
 @router.get("/health")
-async def health():
+async def health(response: Response):
+    """UptimeRobot / readiness probe. DB is the only critical dependency —
+    Redis / email being down degrades features but doesn't make the app
+    unusable, so they're informational only.
+
+    Status code:
+      200 — DB reachable
+      503 — DB unreachable (UptimeRobot fires an alert)
+    """
     from email_service import email_delivery_status
 
     db_status = get_database_status()
     redis_status = await get_redis_status()
     email_status = email_delivery_status()
+
+    healthy = bool(db_status.get("database_ok"))
+    response.status_code = 200 if healthy else 503
+
     return {
-        "status": "ok",
+        "status": "ok" if healthy else "degraded",
         **db_status,
         **redis_status,
         "email": {

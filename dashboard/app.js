@@ -738,6 +738,33 @@ function renderProfile(shop) {
 }
 
 // ── Sidebar plan card ──────────────────────────────────────────────────────────
+async function renderSupportFooter() {
+  const footer = document.getElementById("dashboard-footer");
+  if (!footer) return;
+  try {
+    const r = await fetch("/api/support");
+    if (!r.ok) return;
+    const data = await r.json();
+    const emailEl = document.getElementById("dashboard-footer-email");
+    const tgEl = document.getElementById("dashboard-footer-telegram");
+    let any = false;
+    if (data.email && emailEl) {
+      emailEl.href = `mailto:${data.email}`;
+      emailEl.textContent = `✉ ${data.email}`;
+      emailEl.hidden = false;
+      any = true;
+    }
+    if (data.telegram && tgEl) {
+      const handle = String(data.telegram).replace(/^@/, "");
+      tgEl.href = `https://t.me/${handle}`;
+      tgEl.textContent = `✈ @${handle}`;
+      tgEl.hidden = false;
+      any = true;
+    }
+    footer.hidden = !any;
+  } catch {}
+}
+
 function renderEmailVerifyBanner(me) {
   const banner = document.getElementById("email-verify-banner");
   if (!banner) return;
@@ -1172,6 +1199,7 @@ async function loadAll() {
     renderStats(stats);
     renderEmailVerifyBanner(me);
     renderSetupChecklist(me, stats);
+    renderSupportFooter();
     // Overview extras
     renderOverviewMiniChart(analytics);
     renderOverviewAgent(me, stats);

@@ -60,6 +60,11 @@ PAYMENT_DETAILS = os.getenv("PAYMENT_DETAILS", "")    # Extra payment instructio
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0"))
 
+# Support contacts shown in dashboard + landing footer. Both optional — footer
+# hides entries that are not set.
+SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL", "")
+SUPPORT_TELEGRAM = os.getenv("SUPPORT_TELEGRAM", "")  # e.g. "vendly_support" (no @)
+
 # Email notifications via Resend (https://resend.com)
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@solebot.app")

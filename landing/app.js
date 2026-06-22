@@ -49,3 +49,30 @@ style.textContent = `
   .revealed { opacity: 1; transform: translateY(0); }
 `;
 document.head.appendChild(style);
+
+// Footer support contacts — populated from /api/support, column hidden if both blank.
+(async () => {
+  try {
+    const r = await fetch("/api/support");
+    if (!r.ok) return;
+    const data = await r.json();
+    const col = document.getElementById("landing-footer-support");
+    const emailEl = document.getElementById("landing-support-email");
+    const tgEl = document.getElementById("landing-support-telegram");
+    let any = false;
+    if (data.email && emailEl) {
+      emailEl.href = `mailto:${data.email}`;
+      emailEl.textContent = data.email;
+      emailEl.hidden = false;
+      any = true;
+    }
+    if (data.telegram && tgEl) {
+      const handle = String(data.telegram).replace(/^@/, "");
+      tgEl.href = `https://t.me/${handle}`;
+      tgEl.textContent = `@${handle}`;
+      tgEl.hidden = false;
+      any = true;
+    }
+    if (col) col.hidden = !any;
+  } catch {}
+})();

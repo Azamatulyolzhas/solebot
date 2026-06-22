@@ -1077,6 +1077,25 @@ body.sb-dark .trial-countdown-ok     { color: #4ade80; background: rgba(34,197,9
 body.sb-dark .trial-countdown-warn   { color: #fbbf24; background: rgba(251,191,36,0.18); }
 body.sb-dark .trial-countdown-danger { color: #fca5a5; background: rgba(239,68,68,0.20); }
 
+/* ── Dashboard support footer ───────────────────────────────────────────── */
+.dashboard-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 22px 12px;
+  border-top: 1px solid var(--line);
+  margin-top: 28px;
+  font-size: 13px;
+}
+.dashboard-footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.dashboard-footer a:hover { text-decoration: underline; }
+
 /* ── Mobile-specific overrides for sprint additions ─────────────────────── */
 @media (max-width: 760px) {
   /* Email verify banner: stack text + actions; buttons fill the row */
