@@ -27,30 +27,6 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
 });
 
 // Animated counter for trust stats
-function animateCounter(el, target, suffix = "") {
-  let start = 0;
-  const duration = 1200;
-  const step = timestamp => {
-    if (!start) start = timestamp;
-    const progress = Math.min((timestamp - start) / duration, 1);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    el.textContent = Math.round(eased * target) + suffix;
-    if (progress < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-}
-
-// Trigger counters when hero enters viewport
-const heroObserver = new IntersectionObserver(entries => {
-  if (entries[0].isIntersecting) {
-    animateCounter(document.getElementById("stat-shops"), 50, "+");
-    animateCounter(document.getElementById("stat-msgs"), 10000, "+");
-    heroObserver.disconnect();
-  }
-}, { threshold: 0.3 });
-const heroSection = document.querySelector(".hero");
-if (heroSection) heroObserver.observe(heroSection);
-
 // Scroll-reveal animation
 const revealObserver = new IntersectionObserver(entries => {
   entries.forEach(entry => {

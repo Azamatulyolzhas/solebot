@@ -87,14 +87,23 @@ async def register_shop_bot(shop: dict) -> None:
 
         @dp.message()
         async def shop_message(msg: Message):
-            from billing import check_message_quota, is_subscription_active, quota_exceeded_message
+            from billing import CUSTOMER_UNAVAILABLE_TEXT, check_message_quota, is_subscription_active
+            from notifications import notify_owner_quota_exhausted, notify_owner_subscription_expired
 
             if not is_subscription_active(shop_id):
-                await msg.answer("⚠️ Подписка магазина истекла. Пожалуйста, обратитесь к владельцу.")
+                try:
+                    await notify_owner_subscription_expired(shop_id)
+                except Exception:
+                    log.exception("Subscription owner alert failed shop=%s", shop_id)
+                await msg.answer(CUSTOMER_UNAVAILABLE_TEXT)
                 return
             allowed, used, limit = check_message_quota(shop_id)
             if not allowed:
-                await msg.answer(f"⚠️ {quota_exceeded_message(used, limit)}")
+                try:
+                    await notify_owner_quota_exhausted(shop_id, used, limit)
+                except Exception:
+                    log.exception("Quota owner alert failed shop=%s", shop_id)
+                await msg.answer(CUSTOMER_UNAVAILABLE_TEXT)
                 return
             user_id = f"tg_{shop_id}_{msg.from_user.id}"
 
@@ -113,16 +122,25 @@ async def register_shop_bot(shop: dict) -> None:
 
         @dp.callback_query(F.data == "buy")
         async def shop_buy_callback(cb: CallbackQuery):
-            from billing import check_message_quota, is_subscription_active, quota_exceeded_message
+            from billing import CUSTOMER_UNAVAILABLE_TEXT, check_message_quota, is_subscription_active
+            from notifications import notify_owner_quota_exhausted, notify_owner_subscription_expired
             from orders import handle_order_flow
 
             if not is_subscription_active(shop_id):
-                await cb.answer("Подписка магазина истекла.", show_alert=True)
+                try:
+                    await notify_owner_subscription_expired(shop_id)
+                except Exception:
+                    log.exception("Subscription owner alert failed shop=%s", shop_id)
+                await cb.answer(CUSTOMER_UNAVAILABLE_TEXT, show_alert=True)
                 return
 
             allowed, used, limit = check_message_quota(shop_id)
             if not allowed:
-                await cb.answer(quota_exceeded_message(used, limit), show_alert=True)
+                try:
+                    await notify_owner_quota_exhausted(shop_id, used, limit)
+                except Exception:
+                    log.exception("Quota owner alert failed shop=%s", shop_id)
+                await cb.answer(CUSTOMER_UNAVAILABLE_TEXT, show_alert=True)
                 return
 
             user_id = f"tg_{shop_id}_{cb.from_user.id}"

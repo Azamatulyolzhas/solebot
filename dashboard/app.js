@@ -162,6 +162,74 @@ function renderStats(data) {
   renderSubBanner(data.subscription);
 }
 
+// ── First-run setup checklist ──────────────────────────────────────────────────
+function renderSetupChecklist(me, stats) {
+  const panel = document.getElementById("setup-checklist");
+  if (!panel || !me) return;
+  const hasTg = !!me.has_tg_bot;
+  const products = Number(stats?.products || 0);
+  const hasPersona = !!((me.groq_system_prompt || "").trim() || (me.bot_role || "").trim());
+  // Hide once the two hard requirements are met. Persona + sandbox are nudges, not gates.
+  if (hasTg && products > 0) {
+    panel.hidden = true;
+    return;
+  }
+  const items = [
+    {
+      done: hasTg,
+      title: "Подключите Telegram-бот",
+      desc: "Создайте бота у @BotFather и вставьте токен в разделе «Агент».",
+      cta: "Перейти к подключению",
+      tab: "bot",
+    },
+    {
+      done: products > 0,
+      title: "Загрузите каталог",
+      desc: "Импортируйте CSV или подключите МойСклад — бот отвечает только по вашим товарам.",
+      cta: products > 0 ? `${products} товаров — открыть каталог` : "Загрузить каталог",
+      tab: "catalog",
+    },
+    {
+      done: hasPersona,
+      title: "Настройте характер агента",
+      desc: "Укажите роль и тон — например, «консультант мебельного магазина, на «вы»».",
+      cta: "Настроить",
+      tab: "bot",
+    },
+    {
+      done: false,
+      title: "Протестируйте бота в песочнице",
+      desc: "На вкладке «Агент» — блок «Тестировать агента». Бесплатно, против вашего каталога.",
+      cta: "Открыть песочницу",
+      tab: "bot",
+    },
+  ];
+  const doneCount = items.filter(i => i.done).length;
+  document.getElementById("setup-progress").textContent = `${doneCount} из ${items.length} шагов`;
+  document.getElementById("setup-checklist-items").innerHTML = items.map((it, idx) => {
+    const checkColor = it.done ? "#16a34a" : "var(--text3,#9ca3af)";
+    const titleStyle = it.done ? "text-decoration:line-through;opacity:0.7" : "font-weight:600";
+    return `<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:${idx === 0 ? 'none' : '1px solid var(--border,#e5e7eb)'}">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${checkColor}" stroke-width="2.5" style="flex-shrink:0;margin-top:1px">
+        ${it.done ? '<polyline points="20 6 9 17 4 12"/>' : '<circle cx="12" cy="12" r="9"/>'}
+      </svg>
+      <div style="flex:1;min-width:0">
+        <div style="${titleStyle};margin-bottom:2px">${esc(it.title)}</div>
+        <div class="muted small" style="margin-bottom:6px">${esc(it.desc)}</div>
+        <button class="btn ${it.done ? 'secondary' : ''}" style="font-size:12px;padding:6px 12px"
+                data-setup-target="${it.tab}">${esc(it.cta)}</button>
+      </div>
+    </div>`;
+  }).join("");
+  panel.hidden = false;
+  panel.querySelectorAll("[data-setup-target]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const nav = document.querySelector(`[data-tab=${btn.dataset.setupTarget}]`);
+      nav?.click();
+    });
+  });
+}
+
 // ── Overview extras ────────────────────────────────────────────────────────────
 function renderOverviewMiniChart(analyticsData) {
   destroyChart("overview-mini");
@@ -521,6 +589,8 @@ function renderTgStatus(connected, username, shopOrNotify) {
     document.getElementById("tg-bot-username").textContent =
       username ? `@${username}` : "Агент активен";
     if (shop) renderTgNotifyHint(shop);
+    const testBtn = document.getElementById("tg-test-msg-btn");
+    if (testBtn) testBtn.hidden = !(shop && shop.owner_telegram_chat_id);
   } else {
     badge.textContent = "Не подключён";
     badge.className   = "status-badge badge-pending";
@@ -1407,6 +1477,7 @@ async function loadAll() {
       Object.assign(document.createElement("a"), { href: url, download: "catalog.csv" }).click();
     };
     renderStats(stats);
+    renderSetupChecklist(me, stats);
     // Overview extras
     renderOverviewMiniChart(analytics);
     renderOverviewAgent(me, stats);
@@ -1574,6 +1645,90 @@ document.getElementById("clear-groq-key-btn")?.addEventListener("click", async (
 });
 
 
+// ── Sandbox chat (test the bot against the catalog) ────────────────────────────
+const sandboxState = { history: [], pending: false };
+
+function sandboxRenderHistory() {
+  const log = document.getElementById("sandbox-log");
+  const empty = document.getElementById("sandbox-empty");
+  if (!log) return;
+  if (sandboxState.history.length === 0) {
+    log.innerHTML = '<div class="muted small" id="sandbox-empty">Введите сообщение, чтобы начать.</div>';
+    return;
+  }
+  if (empty) empty.remove();
+  log.innerHTML = sandboxState.history.map(m => {
+    const isUser = m.role === "user";
+    const bg = isUser ? "var(--accent-soft, #e0e7ff)" : "var(--panel, #fff)";
+    const align = isUser ? "flex-end" : "flex-start";
+    const label = isUser ? "Вы" : "Агент";
+    return `<div style="align-self:${align};max-width:85%;background:${bg};border:1px solid var(--border, #e5e7eb);border-radius:10px;padding:8px 12px">
+      <div class="muted small" style="margin-bottom:2px">${label}</div>
+      <div style="white-space:pre-wrap">${esc(m.content)}</div>
+    </div>`;
+  }).join("");
+  log.scrollTop = log.scrollHeight;
+}
+
+function sandboxRenderProducts(products) {
+  const wrap = document.getElementById("sandbox-products");
+  const list = document.getElementById("sandbox-products-list");
+  if (!wrap || !list) return;
+  if (!products || products.length === 0) {
+    wrap.style.display = "none";
+    list.textContent = "";
+    return;
+  }
+  wrap.style.display = "block";
+  list.textContent = products.map(p => p.name).filter(Boolean).join(", ");
+}
+
+async function sandboxSend() {
+  if (sandboxState.pending) return;
+  const input = document.getElementById("sandbox-input");
+  const sendBtn = document.getElementById("sandbox-send");
+  const message = (input?.value || "").trim();
+  if (!message) return;
+  sandboxState.history.push({ role: "user", content: message });
+  sandboxRenderHistory();
+  input.value = "";
+  sandboxState.pending = true;
+  sendBtn.disabled = true;
+  sendBtn.textContent = "Думаю…";
+  try {
+    const data = await api("/shop/sandbox-chat", {
+      method: "POST",
+      json: { message, history: sandboxState.history.slice(0, -1) },
+    });
+    sandboxState.history.push({ role: "assistant", content: data.reply || "" });
+    sandboxRenderHistory();
+    sandboxRenderProducts(data.products || []);
+  } catch (err) {
+    showToast(err.message || "Ошибка", "error");
+    sandboxState.history.pop();
+    sandboxRenderHistory();
+  } finally {
+    sandboxState.pending = false;
+    sendBtn.disabled = false;
+    sendBtn.textContent = "Отправить";
+    input.focus();
+  }
+}
+
+document.getElementById("sandbox-send")?.addEventListener("click", sandboxSend);
+document.getElementById("sandbox-input")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sandboxSend();
+  }
+});
+document.getElementById("sandbox-reset")?.addEventListener("click", () => {
+  sandboxState.history = [];
+  sandboxRenderHistory();
+  sandboxRenderProducts([]);
+});
+
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function esc(v) {
   return String(v ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
@@ -1624,6 +1779,22 @@ document.getElementById("tg-disconnect-btn").addEventListener("click", async () 
     renderTgStatus(false, null, currentShop);
     showToast("Агент отключён", "info");
   } catch (err) { showToast(err.message, "error"); }
+});
+
+document.getElementById("tg-test-msg-btn")?.addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = "Отправляю…";
+  try {
+    await api("/shop/bot-test-message", { method: "POST" });
+    showToast("Тест отправлен — проверьте Telegram", "success");
+  } catch (err) {
+    showToast(err.message || "Ошибка", "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 });
 
 // ── Profile form ───────────────────────────────────────────────────────────────

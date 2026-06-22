@@ -1,9 +1,24 @@
 import asyncio
 import logging
+import time
 
 from shops import get_shop_by_id, get_shop_owner_email, get_shop_subscription_detail, resolve_shop_id
 
 log = logging.getLogger(__name__)
+
+_OWNER_ALERT_DEDUPE: dict[tuple[int, str], float] = {}
+_OWNER_ALERT_WINDOW_SECONDS = 24 * 3600
+
+
+def _claim_owner_alert(shop_id: int, kind: str) -> bool:
+    """True if this (shop_id, kind) hasn't been alerted in the last 24h. Mutates state."""
+    key = (shop_id, kind)
+    now = time.time()
+    last = _OWNER_ALERT_DEDUPE.get(key, 0.0)
+    if now - last < _OWNER_ALERT_WINDOW_SECONDS:
+        return False
+    _OWNER_ALERT_DEDUPE[key] = now
+    return True
 
 
 def _order_message(
@@ -104,6 +119,52 @@ async def notify_handoff(
         await _send_shop_telegram(shop, text)
     except Exception as e:
         log.error("Handoff notification failed: %s", e)
+
+
+async def notify_owner_quota_exhausted(shop_id: int, used: int, limit: int) -> bool:
+    """Alert shop owner via Telegram that the message quota is exhausted.
+
+    Deduped to once per 24h per shop — the customer side switches to a neutral
+    'manager will get back to you' reply, so the owner needs to know but should
+    not be spammed with one alert per blocked message.
+    """
+    try:
+        shop_id = resolve_shop_id(shop_id)
+        if not _claim_owner_alert(shop_id, "quota"):
+            return False
+        shop = get_shop_by_id(shop_id)
+        if not shop:
+            return False
+        text = (
+            f"⚠️ Лимит сообщений исчерпан — {shop.get('name') or 'Магазин'}\n"
+            f"Использовано: {used} из {limit}\n"
+            "Сейчас клиенты получают нейтральный ответ вместо ответа бота. "
+            "Продлите тариф в кабинете, чтобы бот снова отвечал."
+        )
+        return await _send_shop_telegram(shop, text)
+    except Exception as e:
+        log.error("Quota owner alert failed shop=%s: %s", shop_id, e)
+        return False
+
+
+async def notify_owner_subscription_expired(shop_id: int) -> bool:
+    """Alert shop owner via Telegram that the subscription is inactive. 24h dedupe."""
+    try:
+        shop_id = resolve_shop_id(shop_id)
+        if not _claim_owner_alert(shop_id, "subscription"):
+            return False
+        shop = get_shop_by_id(shop_id)
+        if not shop:
+            return False
+        text = (
+            f"⚠️ Подписка неактивна — {shop.get('name') or 'Магазин'}\n"
+            "Сейчас клиенты получают нейтральный ответ вместо ответа бота. "
+            "Откройте кабинет и активируйте тариф."
+        )
+        return await _send_shop_telegram(shop, text)
+    except Exception as e:
+        log.error("Subscription owner alert failed shop=%s: %s", shop_id, e)
+        return False
 
 
 async def notify_shop_owner(

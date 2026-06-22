@@ -113,6 +113,12 @@ def quota_exceeded_message(used: int, limit: int) -> str:
     )
 
 
+CUSTOMER_UNAVAILABLE_TEXT = (
+    "Сейчас бот недоступен. Менеджер свяжется с вами в ближайшее время — "
+    "оставьте, пожалуйста, имя и номер."
+)
+
+
 def resolve_groq_api_key(shop_id: int) -> str | None:
     """Per-shop BYOK key, else platform default."""
     try:

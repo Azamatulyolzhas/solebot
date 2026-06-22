@@ -6,9 +6,9 @@ import time
 import httpx
 
 from billing import (
+    CUSTOMER_UNAVAILABLE_TEXT,
     check_message_quota,
     is_subscription_active,
-    quota_exceeded_message,
     resolve_groq_api_key,
 )
 from cache import (
@@ -518,14 +518,24 @@ async def ask_ai(
 
     shop_id = resolve_shop_id(shop_id)
     if not is_subscription_active(shop_id):
-        return "Подписка магазина истекла. Обратитесь к владельцу магазина."
+        from notifications import notify_owner_subscription_expired
+        try:
+            await notify_owner_subscription_expired(shop_id)
+        except Exception:
+            log.exception("Subscription owner alert dispatch failed shop=%s", shop_id)
+        return CUSTOMER_UNAVAILABLE_TEXT
 
     if await get_handoff_state(user_id):
         return "Менеджер скоро свяжется с вами. Чтобы снова общаться с ботом — напишите /start."
 
     allowed, used, limit = check_message_quota(shop_id)
     if not allowed:
-        return quota_exceeded_message(used, limit)
+        from notifications import notify_owner_quota_exhausted
+        try:
+            await notify_owner_quota_exhausted(shop_id, used, limit)
+        except Exception:
+            log.exception("Quota owner alert dispatch failed shop=%s", shop_id)
+        return CUSTOMER_UNAVAILABLE_TEXT
 
     api_key = resolve_groq_api_key(shop_id)
     shop = get_shop_by_id(shop_id) or {}
@@ -720,3 +730,91 @@ async def save_ai_result(
         )
     except Exception:
         log.exception("Saving AI result failed")
+
+
+async def sandbox_reply(
+    shop_id: int,
+    user_message: str,
+    history: list[dict] | None = None,
+) -> dict:
+    """Owner-facing dashboard preview: dry-run the bot against the shop's catalog.
+
+    Reuses get_relevant_products + build_product_reply + build_greeting_reply but skips
+    quota/handoff/persistence/analytics. Returns a structured dict so the dashboard can
+    show what the bot matched (mode + product list) alongside the reply.
+    """
+    if not user_message or not user_message.strip():
+        return {
+            "reply": "Введите сообщение, чтобы протестировать бота.",
+            "mode": "empty",
+            "products": [],
+        }
+
+    api_key = resolve_groq_api_key(shop_id)
+    shop = get_shop_by_id(shop_id) or {}
+    groq_history = _trim_history(history or [])
+
+    if is_greeting(user_message):
+        if api_key:
+            reply, _usage, mode = await build_greeting_reply(
+                shop_id, shop, user_message, api_key,
+                get_catalog_sample(shop_id, limit=10),
+                history=groq_history,
+            )
+        else:
+            reply, mode = greeting_reply(shop_id), "greeting"
+        return {"reply": reply, "mode": mode, "products": []}
+
+    if is_browse_query(user_message):
+        return {
+            "reply": format_browse_reply(shop_id),
+            "mode": "catalog_browse",
+            "products": [],
+        }
+
+    if not api_key:
+        return {
+            "reply": "Для подбора товаров нужен Groq API ключ. Добавьте его в настройках агента.",
+            "mode": "no_api_key",
+            "products": [],
+        }
+
+    matched: list[dict] = []
+    try:
+        matched = await get_relevant_products(
+            user_message,
+            shop_id=shop_id,
+            shop=shop,
+            api_key=api_key,
+            history=groq_history,
+        )
+    except Exception:
+        log.exception("Sandbox product search failed shop=%s", shop_id)
+        return {
+            "reply": "Ошибка поиска по каталогу. Проверьте Groq API ключ и попробуйте ещё раз.",
+            "mode": "error",
+            "products": [],
+        }
+
+    products_meta = [
+        {
+            "name": (p.get("name") or "")[:120],
+            "price": p.get("price"),
+            "category": p.get("category") or None,
+            "quantity": p.get("quantity"),
+        }
+        for p in matched[:8]
+    ]
+
+    if matched:
+        reply, _usage, mode = await build_product_reply(
+            shop_id, shop, matched[:8], user_message, api_key,
+            history=groq_history, followup=False,
+        )
+        return {"reply": reply, "mode": mode, "products": products_meta}
+
+    return {
+        "reply": product_not_found_reply(),
+        "mode": "catalog_not_found",
+        "products": [],
+    }

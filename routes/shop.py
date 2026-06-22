@@ -61,6 +61,10 @@ _register_attempts: dict[str, list[float]] = _defaultdict(list)
 _REGISTER_MAX = 5
 _REGISTER_WINDOW = 600
 
+_sandbox_attempts: dict[int, list[float]] = _defaultdict(list)
+_SANDBOX_MAX = 30
+_SANDBOX_WINDOW = 3600
+
 
 def _check_login_rate(ip: str) -> None:
     now = _time.time()
@@ -78,6 +82,18 @@ def _check_register_rate(ip: str) -> None:
     _register_attempts[ip] = attempts
     if len(attempts) > _REGISTER_MAX:
         raise HTTPException(429, "Слишком много регистраций с этого адреса. Попробуйте позже.")
+
+
+def _check_sandbox_rate(shop_id: int) -> None:
+    now = _time.time()
+    attempts = [t for t in _sandbox_attempts[shop_id] if now - t < _SANDBOX_WINDOW]
+    attempts.append(now)
+    _sandbox_attempts[shop_id] = attempts
+    if len(attempts) > _SANDBOX_MAX:
+        raise HTTPException(
+            429,
+            f"Лимит на тестирование — {_SANDBOX_MAX} сообщений в час. Подождите и продолжите.",
+        )
 
 
 # ── Auth dependency ────────────────────────────────────────────────────────────
@@ -130,6 +146,16 @@ class ProductPatch(BaseModel):
 
 class OrderPatch(BaseModel):
     status: str
+
+
+class SandboxMessage(BaseModel):
+    role: str
+    content: str
+
+
+class SandboxChatRequest(BaseModel):
+    message: str
+    history: list[SandboxMessage] = []
 
 
 # ── Public routes ──────────────────────────────────────────────────────────────
@@ -548,6 +574,27 @@ async def shop_subscription(shop: dict = Depends(get_current_shop)):
     return {**sub, **subscription_usage(shop["id"])}
 
 
+@router.post("/sandbox-chat")
+async def shop_sandbox_chat(body: SandboxChatRequest, shop: dict = Depends(get_current_shop)):
+    """Owner-facing dry-run. Hits Groq with the shop's own catalog & API key
+    but skips quota, persistence, analytics. Per-shop limit: 30 reqs/hour."""
+    from ai import sandbox_reply
+
+    message = (body.message or "").strip()
+    if not message:
+        raise HTTPException(400, "Введите сообщение для теста")
+    if len(message) > 2000:
+        raise HTTPException(400, "Сообщение слишком длинное (макс. 2000 символов)")
+    _check_sandbox_rate(shop["id"])
+    history = [
+        {"role": m.role, "content": m.content}
+        for m in (body.history or [])
+        if m.role in ("user", "assistant") and (m.content or "").strip()
+    ][-16:]
+    result = await sandbox_reply(shop["id"], message, history=history)
+    return result
+
+
 @router.get("/payment-info")
 async def shop_payment_info(_: dict = Depends(get_current_shop)):
     from config import PAYMENT_DETAILS, PAYMENT_KASPI
@@ -667,6 +714,43 @@ async def shop_bot_connect(body: BotConnectRequest, shop: dict = Depends(get_cur
         "webhook_url": webhook_url,
         "detached_from": [{"id": s["id"], "name": s["name"]} for s in detached],
     }
+
+
+@router.post("/bot-test-message")
+async def shop_bot_test_message(shop: dict = Depends(get_current_shop)):
+    """Send a smoke-test message to the owner's Telegram using the connected bot.
+
+    Lets the owner confirm at registration time that token + chat_id are wired up correctly,
+    before customers start arriving. Refreshes shop state from DB to avoid stale JWT data.
+    """
+    import httpx
+
+    fresh = get_shop_by_id(shop["id"]) or shop
+    token = (fresh.get("tg_token") or "").strip()
+    chat_id = (fresh.get("owner_telegram_chat_id") or "").strip()
+    if not token:
+        raise HTTPException(400, "Сначала подключите Telegram-бота")
+    if not chat_id:
+        raise HTTPException(400, "Сначала укажите Telegram ID для уведомлений и нажмите /start у бота")
+    text = (
+        f"✅ Тест прошёл — {fresh.get('name') or 'магазин'} подключён.\n"
+        "Сюда будут приходить уведомления о заказах и алёрты по лимитам."
+    )
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": int(chat_id), "text": text},
+            )
+    except (ValueError, httpx.HTTPError) as e:
+        raise HTTPException(502, f"Telegram отверг запрос: {e}") from None
+    data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    if not data.get("ok"):
+        detail = data.get("description") or f"HTTP {r.status_code}"
+        if "chat not found" in detail.lower():
+            detail = "Telegram говорит «чат не найден». Откройте бота и нажмите /start, потом повторите."
+        raise HTTPException(400, detail)
+    return {"ok": True}
 
 
 @router.delete("/bot-connect")
