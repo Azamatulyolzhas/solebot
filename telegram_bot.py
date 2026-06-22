@@ -7,7 +7,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from ai import ask_ai, _ORDER_HINT
 from cache import clear_chat_context, clear_handoff_state, get_handoff_state, set_handoff_state
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_URL
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TELEGRAM_WEBHOOK_URL
 from shops import get_all_active_telegram_shops, get_shop_by_id, get_shop_by_webhook_secret
 
 log = logging.getLogger(__name__)
@@ -138,7 +138,10 @@ async def register_shop_bot(shop: dict) -> None:
 
         if TELEGRAM_WEBHOOK:
             webhook_url = TELEGRAM_WEBHOOK.rstrip("/") + f"/tg/{secret}/webhook"
-            await bot.set_webhook(webhook_url, drop_pending_updates=True)
+            # secret_token = the shop's webhook_secret. Telegram echoes it back
+            # in the X-Telegram-Bot-Api-Secret-Token header so the route can
+            # reject anything that didn't come from Telegram.
+            await bot.set_webhook(webhook_url, drop_pending_updates=True, secret_token=secret)
             log.info(f"Telegram webhook установлен для {fresh.get('name')}: {webhook_url}")
     except Exception as e:
         log.error(f"Register shop bot failed for shop {shop.get('id')}: {e}")
@@ -179,7 +182,10 @@ async def setup_default_webhook() -> None:
     if tg_bot and TELEGRAM_WEBHOOK:
         try:
             webhook_url = TELEGRAM_WEBHOOK.rstrip("/") + "/tg/webhook"
-            await tg_bot.set_webhook(webhook_url, drop_pending_updates=True)
+            kwargs = {"drop_pending_updates": True}
+            if TELEGRAM_WEBHOOK_SECRET:
+                kwargs["secret_token"] = TELEGRAM_WEBHOOK_SECRET
+            await tg_bot.set_webhook(webhook_url, **kwargs)
             log.info(f"Telegram webhook установлен: {webhook_url}")
         except Exception as e:
             log.error(f"Ошибка установки webhook: {e}")

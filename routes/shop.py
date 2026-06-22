@@ -710,9 +710,15 @@ async def shop_bot_connect(body: BotConnectRequest, shop: dict = Depends(get_cur
     if TELEGRAM_WEBHOOK_URL:
         webhook_url = TELEGRAM_WEBHOOK_URL.rstrip("/") + f"/tg/{webhook_secret}/webhook"
         async with httpx.AsyncClient(timeout=10) as client:
+            # secret_token: Telegram echoes this back in X-Telegram-Bot-Api-Secret-Token
+            # so the webhook handler can drop anything that didn't come from Telegram.
             await client.post(
                 f"https://api.telegram.org/bot{token}/setWebhook",
-                json={"url": webhook_url, "drop_pending_updates": True},
+                json={
+                    "url": webhook_url,
+                    "drop_pending_updates": True,
+                    "secret_token": webhook_secret,
+                },
             )
 
     updated_shop = get_shop_by_id(shop["id"])

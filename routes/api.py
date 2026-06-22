@@ -116,11 +116,19 @@ async def web_chat(body: ChatRequest, request: Request):
 
 @router.post("/tg/webhook")
 async def telegram_webhook(request: Request):
+    import secrets as _secrets
+
     from fastapi import HTTPException
+
+    from config import TELEGRAM_WEBHOOK_SECRET
     from telegram_bot import process_default_update, tg_bot
 
     if not tg_bot:
         raise HTTPException(503, "Telegram не настроен")
+    if TELEGRAM_WEBHOOK_SECRET:
+        sent = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if not _secrets.compare_digest(sent, TELEGRAM_WEBHOOK_SECRET):
+            raise HTTPException(403, "Invalid webhook signature")
     try:
         data = await request.json()
         await process_default_update(data)
@@ -132,8 +140,17 @@ async def telegram_webhook(request: Request):
 
 @router.post("/tg/{webhook_secret}/webhook")
 async def telegram_shop_webhook(webhook_secret: str, request: Request):
+    import secrets as _secrets
+
     from fastapi import HTTPException
     from telegram_bot import process_shop_update
+
+    # Telegram echoes back the per-shop secret_token from setWebhook in this
+    # header. If it doesn't match the URL secret, the request didn't come
+    # from Telegram — drop it before touching shop state.
+    sent = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not _secrets.compare_digest(sent, webhook_secret):
+        raise HTTPException(403, "Invalid webhook signature")
 
     try:
         data = await request.json()
