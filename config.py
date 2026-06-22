@@ -5,6 +5,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+ENVIRONMENT = (
+    os.getenv("ENVIRONMENT")
+    or os.getenv("RAILWAY_ENVIRONMENT_NAME")
+    or "development"
+).strip().lower()
+IS_PRODUCTION = ENVIRONMENT in ("production", "prod")
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -27,13 +34,13 @@ RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 
 # JWT secret for shop owner tokens — set a strong random string in .env
 JWT_SECRET = os.getenv("JWT_SECRET", "")
-if not JWT_SECRET:
+if not JWT_SECRET and not IS_PRODUCTION:
     import secrets as _secrets
     JWT_SECRET = _secrets.token_hex(32)
     import logging as _logging
     _logging.getLogger(__name__).warning(
-        "JWT_SECRET not set in .env — using random ephemeral key. "
-        "All sessions will be invalidated on restart. Set JWT_SECRET in production!"
+        "JWT_SECRET not set — using random ephemeral key (dev mode). "
+        "All sessions will be invalidated on restart."
     )
 JWT_ALGORITHM = "HS256"
 JWT_TTL_DAYS = int(os.getenv("JWT_TTL_DAYS", "30"))
@@ -47,3 +54,31 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@solebot.app")
 EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "SaleBot")
 SHOP_DASHBOARD_URL = os.getenv("SHOP_DASHBOARD_URL", "")
+
+# CORS — comma-separated list of allowed origins. Empty in dev means "allow all without credentials".
+ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
+
+
+def _require_production_secrets() -> None:
+    """In production, every secret on this list must be set. Fail fast with one message
+    listing all the missing names instead of letting the app boot half-configured and
+    crash later under traffic."""
+    missing: list[str] = []
+    if not JWT_SECRET:
+        missing.append("JWT_SECRET")
+    if not ADMIN_PASSWORD_HASH:
+        missing.append("ADMIN_PASSWORD_HASH")
+    if not ALLOWED_ORIGINS:
+        missing.append("ALLOWED_ORIGINS")
+    if missing:
+        raise RuntimeError(
+            f"Missing required env vars for production: {', '.join(missing)}. "
+            f"Set them in your environment (ENVIRONMENT=production was detected). "
+            f"For local dev, leave ENVIRONMENT unset or set it to 'development'."
+        )
+
+
+if IS_PRODUCTION:
+    _require_production_secrets()

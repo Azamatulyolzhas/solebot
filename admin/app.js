@@ -44,9 +44,22 @@ function authHeaders(extra = {}) {
   return headers;
 }
 
-function authQuery(extra = "") {
-  const join = extra.includes("?") ? "&" : "?";
-  return `${extra}${join}token=${encodeURIComponent(token)}`;
+async function downloadWithAuth(path, fallbackName) {
+  const res = await fetch(path, { headers: authHeaders() });
+  if (!res.ok) {
+    showToast(`Не удалось скачать: HTTP ${res.status}`, "error");
+    return;
+  }
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  const name = match ? match[1] : fallbackName;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function api(path, options = {}) {
@@ -95,9 +108,21 @@ async function enterApp() {
 
 function bindLinks() {
   const exp = document.getElementById("export-link");
-  if (exp) exp.href = authQuery("/admin/export");
+  if (exp) {
+    exp.href = "#";
+    exp.addEventListener("click", (e) => {
+      e.preventDefault();
+      downloadWithAuth("/admin/export", "solebot-products.csv");
+    });
+  }
   const tpl = document.getElementById("template-link");
-  if (tpl) tpl.href = authQuery("/admin/import-template");
+  if (tpl) {
+    tpl.href = "#";
+    tpl.addEventListener("click", (e) => {
+      e.preventDefault();
+      downloadWithAuth("/admin/import-template", "template.csv");
+    });
+  }
 }
 
 function switchTab(name) {

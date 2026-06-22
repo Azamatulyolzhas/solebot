@@ -14,10 +14,6 @@ def is_admin_configured() -> bool:
 
 
 def _admin_authorized(request: Request) -> bool:
-    query_token = request.query_params.get("token") or ""
-    if query_token and decode_admin_token(query_token):
-        return True
-
     auth_header = request.headers.get("Authorization") or ""
     if auth_header.startswith("Bearer "):
         if decode_admin_token(auth_header[7:].strip()):

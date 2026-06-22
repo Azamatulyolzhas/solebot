@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from cache import close_redis
+from config import ALLOWED_ORIGINS
 from routes.admin import router as admin_router
 from routes.api import router as api_router
 from routes.shop import router as shop_router
@@ -41,10 +42,6 @@ async def lifespan(app: FastAPI):
     await close_redis()
     await close_default_bot()
 
-
-import os as _os
-_raw_origins = _os.getenv("ALLOWED_ORIGINS", "")
-ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app = FastAPI(title="SaleBot", lifespan=lifespan)
 app.add_middleware(

@@ -1,6 +1,8 @@
 import logging
+import time as _time
+from collections import defaultdict as _defaultdict
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from ai import ask_ai
@@ -14,6 +16,23 @@ from shops import get_default_shop_id, resolve_shop_id
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Per-IP rate limit for /api/chat. The user_id passed to ask_ai (and to its
+# Redis-backed rate limiter) is "web_{session_id}" — session_id comes from the
+# client, so a hostile client can rotate it and bypass that throttle. This
+# in-process per-IP cap is the actual ceiling for the public web channel.
+_web_chat_attempts: dict[str, list[float]] = _defaultdict(list)
+_WEB_CHAT_MAX = 30
+_WEB_CHAT_WINDOW = 60
+
+
+def _check_web_chat_rate(ip: str) -> None:
+    now = _time.time()
+    attempts = [t for t in _web_chat_attempts[ip] if now - t < _WEB_CHAT_WINDOW]
+    attempts.append(now)
+    _web_chat_attempts[ip] = attempts
+    if len(attempts) > _WEB_CHAT_MAX:
+        raise HTTPException(429, "Слишком много сообщений. Подождите минуту.")
 
 
 @router.get("/store", response_class=HTMLResponse)
@@ -72,7 +91,8 @@ async def health():
 
 
 @router.post("/api/chat", response_model=ChatResponse)
-async def web_chat(body: ChatRequest):
+async def web_chat(body: ChatRequest, request: Request):
+    _check_web_chat_rate(request.client.host if request.client else "unknown")
     user_id = f"web_{body.session_id}"
     reply = await ask_ai(user_id, body.message)
     return ChatResponse(reply=reply)
