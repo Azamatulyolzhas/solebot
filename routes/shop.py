@@ -587,7 +587,7 @@ async def shop_sandbox_chat(body: SandboxChatRequest, shop: dict = Depends(get_c
         raise HTTPException(400, "Сообщение слишком длинное (макс. 2000 символов)")
     _check_sandbox_rate(shop["id"])
     history = [
-        {"role": m.role, "content": m.content}
+        {"role": m.role, "content": (m.content or "").strip()[:2000]}
         for m in (body.history or [])
         if m.role in ("user", "assistant") and (m.content or "").strip()
     ][-16:]
