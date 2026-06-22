@@ -1,6 +1,9 @@
+import logging
 import sqlite3
 
 from config import DATABASE_URL, DB_PATH, USE_POSTGRES
+
+log = logging.getLogger(__name__)
 
 try:
     import psycopg
@@ -9,12 +12,86 @@ except ImportError:
     psycopg = None
     dict_row = None
 
+try:
+    from psycopg_pool import ConnectionPool
+except ImportError:
+    ConnectionPool = None
+
+_pool: "ConnectionPool | None" = None
+
+# Pool size — Railway plans typically allow 100-200 max Postgres connections.
+# Single web worker × 10 = comfortable headroom; bump max_size if you scale workers.
+_POOL_MIN_SIZE = 1
+_POOL_MAX_SIZE = 10
+
+
+def _get_pool() -> "ConnectionPool":
+    """Lazy-init a process-global connection pool. The previous implementation
+    opened a fresh psycopg.connect() on every fetch_all / execute_write, which
+    means a single Telegram message spends 12-16 round-trips on TCP handshakes
+    + Postgres auth. With the pool, the same workload reuses warm connections."""
+    global _pool
+    if ConnectionPool is None:
+        raise RuntimeError(
+            "psycopg_pool is required for pooled Postgres connections. "
+            "Install with: pip install psycopg-pool"
+        )
+    if _pool is None:
+        _pool = ConnectionPool(
+            DATABASE_URL,
+            min_size=_POOL_MIN_SIZE,
+            max_size=_POOL_MAX_SIZE,
+            kwargs={"row_factory": dict_row},
+            open=True,
+        )
+    return _pool
+
+
+def close_db_pool() -> None:
+    """Shut the pool down cleanly (call from FastAPI lifespan on shutdown)."""
+    global _pool
+    if _pool is not None:
+        try:
+            _pool.close()
+        except Exception:
+            log.exception("Closing connection pool failed")
+        _pool = None
+
+
+class _PooledConnection:
+    """Mimic the plain psycopg.Connection API but `.close()` returns the
+    underlying connection to the pool instead of dropping it. This lets every
+    existing caller (fetch_all, execute_write, etc.) keep its
+    `conn = get_db(); try: ...; finally: conn.close()` pattern unchanged."""
+
+    def __init__(self, pool, conn):
+        self._pool = pool
+        self._conn = conn
+        self._returned = False
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self) -> None:
+        if self._returned:
+            return
+        self._returned = True
+        try:
+            self._pool.putconn(self._conn)
+        except Exception:
+            log.exception("Returning connection to pool failed; closing it instead")
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
 
 def get_db():
     if USE_POSTGRES:
         if psycopg is None:
             raise RuntimeError("Install psycopg[binary] to use PostgreSQL")
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        pool = _get_pool()
+        return _PooledConnection(pool, pool.getconn())
 
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row

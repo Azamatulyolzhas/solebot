@@ -66,7 +66,21 @@ def ensure_default_shop_data() -> None:
 
 
 def resolve_shop_id(shop_id: int | None = None) -> int:
-    return shop_id if shop_id is not None else get_default_shop_id()
+    """Return shop_id as an int, or raise ValueError if None.
+
+    Previously this silently fell back to get_default_shop_id() when shop_id was
+    None, which created a cross-tenant data-leak risk: any code path that failed
+    to thread the real shop_id would quietly read/write against the default shop
+    instead of erroring out. Callers that legitimately want the default shop now
+    must call get_default_shop_id() explicitly (see routes/api.py:web_chat and
+    telegram_bot.py:tg_message for the canonical pattern).
+    """
+    if shop_id is None:
+        raise ValueError(
+            "resolve_shop_id called with None. Pass an explicit shop_id, or call "
+            "get_default_shop_id() directly if you really mean the default shop."
+        )
+    return shop_id
 
 def list_shops(include_deleted: bool = False) -> list[dict]:
     try:

@@ -94,7 +94,9 @@ async def health():
 async def web_chat(body: ChatRequest, request: Request):
     _check_web_chat_rate(request.client.host if request.client else "unknown")
     user_id = f"web_{body.session_id}"
-    reply = await ask_ai(user_id, body.message)
+    # Public web widget targets the default shop — pass it explicitly so resolve_shop_id
+    # never has to silently fall through to the default (P3 item 3 — fail-closed).
+    reply = await ask_ai(user_id, body.message, shop_id=get_default_shop_id())
     return ChatResponse(reply=reply)
 
 

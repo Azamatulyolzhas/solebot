@@ -33,6 +33,9 @@ def stub_ask_ai(monkeypatch):
         return "ok"
     monkeypatch.setattr(ai, "ask_ai", fake)
     monkeypatch.setattr(api_route, "ask_ai", fake)
+    # web_chat now resolves the default shop explicitly (P3 item 3 fail-closed)
+    # — stub it so the test doesn't need a real shops table.
+    monkeypatch.setattr(api_route, "get_default_shop_id", lambda: 1)
 
 
 class TestPerIpRateLimit:

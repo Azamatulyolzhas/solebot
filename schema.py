@@ -286,6 +286,10 @@ def ensure_app_tables() -> None:
             _enable_vector_search(conn)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_shop ON conversations(shop_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_shop ON subscriptions(shop_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_analytics_events_shop_event_time "
+                "ON analytics_events(shop_id, event_name, created_at)"
+            )
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS password_reset_tokens (
                     id BIGSERIAL PRIMARY KEY,
@@ -437,6 +441,10 @@ def ensure_app_tables() -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_shop ON orders(shop_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_shop ON conversations(shop_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_shop ON subscriptions(shop_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_analytics_events_shop_event_time "
+                "ON analytics_events(shop_id, event_name, created_at)"
+            )
 
         migrate_sneakers_to_products(conn)
         drop_legacy_sneakers_table(conn)

@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from cache import close_redis
 from config import ALLOWED_ORIGINS
+from db import close_db_pool
 from routes.admin import router as admin_router
 from routes.api import router as api_router
 from routes.shop import router as shop_router
@@ -41,6 +42,7 @@ async def lifespan(app: FastAPI):
     await close_shop_bots()
     await close_redis()
     await close_default_bot()
+    close_db_pool()
 
 
 app = FastAPI(title="SaleBot", lifespan=lifespan)

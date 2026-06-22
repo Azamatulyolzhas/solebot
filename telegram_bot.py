@@ -31,9 +31,12 @@ if tg_dp:
 
     @tg_dp.message()
     async def tg_message(msg: Message):
+        from shops import get_default_shop_id
+
         user_id = f"tg_{msg.from_user.id}"
         await msg.bot.send_chat_action(msg.chat.id, "typing")
-        reply = await ask_ai(user_id, msg.text or "")
+        # Default Telegram bot targets the default shop — pass explicitly (P3 item 3).
+        reply = await ask_ai(user_id, msg.text or "", shop_id=get_default_shop_id())
         await msg.answer(reply)
 
 
