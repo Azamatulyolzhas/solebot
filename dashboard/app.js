@@ -1257,21 +1257,18 @@ const sandboxState = { history: [], pending: false };
 
 function sandboxRenderHistory() {
   const log = document.getElementById("sandbox-log");
-  const empty = document.getElementById("sandbox-empty");
   if (!log) return;
   if (sandboxState.history.length === 0) {
-    log.innerHTML = '<div class="muted small" id="sandbox-empty">Введите сообщение, чтобы начать.</div>';
+    log.innerHTML = '<div class="sandbox-empty" id="sandbox-empty">Введите сообщение, чтобы начать.</div>';
     return;
   }
-  if (empty) empty.remove();
   log.innerHTML = sandboxState.history.map(m => {
     const isUser = m.role === "user";
-    const bg = isUser ? "var(--accent-soft, #e0e7ff)" : "var(--panel, #fff)";
-    const align = isUser ? "flex-end" : "flex-start";
+    const cls = isUser ? "sandbox-msg sandbox-msg-user" : "sandbox-msg sandbox-msg-assistant";
     const label = isUser ? "Вы" : "Агент";
-    return `<div style="align-self:${align};max-width:85%;background:${bg};border:1px solid var(--border, #e5e7eb);border-radius:10px;padding:8px 12px">
-      <div class="muted small" style="margin-bottom:2px">${label}</div>
-      <div style="white-space:pre-wrap">${esc(m.content)}</div>
+    return `<div class="${cls}">
+      <div class="sandbox-msg-label">${label}</div>
+      <div>${esc(m.content)}</div>
     </div>`;
   }).join("");
   log.scrollTop = log.scrollHeight;
@@ -1282,11 +1279,11 @@ function sandboxRenderProducts(products) {
   const list = document.getElementById("sandbox-products-list");
   if (!wrap || !list) return;
   if (!products || products.length === 0) {
-    wrap.style.display = "none";
+    wrap.hidden = true;
     list.textContent = "";
     return;
   }
-  wrap.style.display = "block";
+  wrap.hidden = false;
   list.textContent = products.map(p => p.name).filter(Boolean).join(", ");
 }
 

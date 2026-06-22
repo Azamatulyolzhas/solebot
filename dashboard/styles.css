@@ -972,3 +972,57 @@ body.sb-dark .channel-setup-card { border-color: var(--line); }
   .profile-grid  { grid-template-columns: 1fr; }
   .charts-row    { grid-template-columns: 1fr; }
 }
+
+/* ── Sandbox chat panel ──────────────────────────────────────────────────── */
+.sandbox-panel { margin-top: 20px; }
+.sandbox-hint { margin: 0 0 12px 0; }
+.sandbox-log {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  height: 320px;
+  overflow-y: auto;
+  background: var(--soft);
+  font-size: 14px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sandbox-empty { color: var(--text2); font-size: 13px; }
+.sandbox-msg {
+  max-width: 75%;
+  padding: 9px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.sandbox-msg-user {
+  align-self: flex-end;
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+}
+.sandbox-msg-assistant {
+  align-self: flex-start;
+  background: var(--card);
+}
+.sandbox-msg-label {
+  font-size: 11px;
+  color: var(--text3);
+  margin-bottom: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.sandbox-products { margin-top: 6px; color: var(--text2); }
+.sandbox-input-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.sandbox-input-row input { flex: 1; }
+
+/* Softer disconnect — destructive intent kept via confirm() dialog in JS */
+.tg-disconnect-btn { color: var(--danger); }
+.tg-disconnect-btn:hover { background: var(--danger-soft); }

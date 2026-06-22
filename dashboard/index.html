@@ -518,7 +518,7 @@
                     <button id="tg-test-msg-btn" class="btn secondary" type="button" hidden>Отправить тестовое сообщение</button>
                   </div>
                   <div class="btn-row mt-sm">
-                    <button id="tg-disconnect-btn" class="btn danger">Отключить агента</button>
+                    <button id="tg-disconnect-btn" class="btn secondary tg-disconnect-btn">Отключить агента</button>
                   </div>
                 </div>
                 <div id="tg-connect-block" class="panel-body form-grid">
@@ -622,7 +622,7 @@
                   <input type="url" id="website-url-input" style="display:none" autocomplete="off">
                   <label class="form-label">
                     Системный промпт (дополнительно)
-                    <textarea id="bot-prompt-input" rows="5" placeholder="Будь дружелюбным. Помогай выбрать товар. Цены и наличие агент не выдумывает."></textarea>
+                    <textarea id="bot-prompt-input" rows="3" placeholder="Будь дружелюбным. Помогай выбрать товар. Цены и наличие агент не выдумывает."></textarea>
                     <span class="muted small">Только тон и стиль. Не перечисляйте товары здесь — агент берёт их из каталога.</span>
                   </label>
                   <label class="form-label">
@@ -639,37 +639,35 @@
                 </div>
               </div>
 
-              <!-- Sandbox: test the bot against the catalog without Telegram -->
-              <div class="panel" data-reveal>
-                <div class="panel-head">
-                  <h2>Тестировать агента</h2>
-                  <span class="badge-info">Песочница</span>
-                </div>
-                <div class="panel-body">
-                  <p class="muted small" style="margin:0 0 12px 0">
-                    Напишите как клиент — агент ответит вашим тоном и подберёт товары из вашего каталога.
-                    Использует ваш Groq API ключ. Лимит: 30 сообщений в час.
-                  </p>
-                  <div id="sandbox-log"
-                       style="border:1px solid var(--border, #e5e7eb);border-radius:8px;padding:12px;height:280px;overflow-y:auto;background:var(--bg-soft, #f9fafb);font-size:14px;line-height:1.5;display:flex;flex-direction:column;gap:8px">
-                    <div class="muted small" id="sandbox-empty">Введите сообщение, чтобы начать.</div>
-                  </div>
-                  <div id="sandbox-products" class="muted small" style="margin-top:6px;display:none">
-                    <strong>Агент нашёл в каталоге:</strong> <span id="sandbox-products-list"></span>
-                  </div>
-                  <div style="display:flex;gap:8px;margin-top:12px">
-                    <input type="text" id="sandbox-input"
-                           placeholder='Например: "хочу синие кроссовки 42 размер"'
-                           style="flex:1"
-                           maxlength="2000">
-                    <button id="sandbox-send" class="btn" type="button">Отправить</button>
-                    <button id="sandbox-reset" class="btn secondary" type="button" title="Очистить диалог">Сброс</button>
-                  </div>
-                </div>
-              </div>
-
             </div><!-- /right -->
           </div><!-- /detail-grid -->
+
+          <!-- Sandbox spans full width — chat UI needs more horizontal room than a column allows -->
+          <div class="panel sandbox-panel" data-reveal>
+            <div class="panel-head">
+              <h2>Тестировать агента</h2>
+              <span class="badge-info">Песочница</span>
+            </div>
+            <div class="panel-body">
+              <p class="muted small sandbox-hint">
+                Напишите как клиент — агент ответит вашим тоном и подберёт товары из вашего каталога.
+                Использует ваш Groq API ключ. Лимит: 30 сообщений в час.
+              </p>
+              <div id="sandbox-log" class="sandbox-log">
+                <div class="sandbox-empty" id="sandbox-empty">Введите сообщение, чтобы начать.</div>
+              </div>
+              <div id="sandbox-products" class="muted small sandbox-products" hidden>
+                <strong>Агент нашёл в каталоге:</strong> <span id="sandbox-products-list"></span>
+              </div>
+              <div class="sandbox-input-row">
+                <input type="text" id="sandbox-input"
+                       placeholder='Например: "хочу синие кроссовки 42 размер"'
+                       maxlength="2000">
+                <button id="sandbox-send" class="btn" type="button">Отправить</button>
+                <button id="sandbox-reset" class="btn secondary" type="button" title="Очистить диалог">Сброс</button>
+              </div>
+            </div>
+          </div>
         </div><!-- /agent-card-view -->
 
 
