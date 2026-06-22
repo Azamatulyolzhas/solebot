@@ -738,6 +738,45 @@ function renderProfile(shop) {
 }
 
 // ── Sidebar plan card ──────────────────────────────────────────────────────────
+function renderTrialCountdown(sub) {
+  const el = document.getElementById("trial-countdown");
+  if (!el) return;
+  const ends = sub && (sub.trial_ends_at || (sub.plan === "trial" && sub.period_ends_at));
+  if (!sub || sub.plan !== "trial" || !ends) {
+    el.hidden = true;
+    return;
+  }
+  const endTs = new Date(ends).getTime();
+  if (isNaN(endTs)) { el.hidden = true; return; }
+  const msLeft = endTs - Date.now();
+  const daysLeft = Math.ceil(msLeft / 86_400_000);
+  let cls = "trial-countdown-ok", label;
+  if (daysLeft <= 0) {
+    cls = "trial-countdown-danger";
+    label = "Trial истёк";
+  } else if (daysLeft < 3) {
+    cls = "trial-countdown-danger";
+    label = `Trial: ${daysLeft} ${pluralDays(daysLeft)} осталось`;
+  } else if (daysLeft <= 7) {
+    cls = "trial-countdown-warn";
+    label = `Trial: ${daysLeft} ${pluralDays(daysLeft)} осталось`;
+  } else {
+    label = `Trial: ${daysLeft} ${pluralDays(daysLeft)} осталось`;
+  }
+  el.className = `trial-countdown ${cls}`;
+  el.textContent = label;
+  el.hidden = false;
+  el.onclick = () => document.querySelector('[data-tab=subscription]')?.click();
+  el.style.cursor = "pointer";
+}
+
+function pluralDays(n) {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "день";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "дня";
+  return "дней";
+}
+
 function updateSidebarPlan(sub, shopName) {
   const nameEl = document.getElementById("sidebar-plan-name");
   const infoEl = document.getElementById("sidebar-plan-info");
@@ -751,6 +790,8 @@ function updateSidebarPlan(sub, shopName) {
   const unlimited = sub ? (sub.unlimited || limit >= 999999) : false;
   if (infoEl) infoEl.textContent = unlimited ? `${used} сообщений (безлимит)` : `${used} / ${limit} сообщений`;
   if (fillEl) fillEl.style.width = unlimited ? "40%" : (limit > 0 ? Math.min(100, Math.round(used / limit * 100)) + "%" : "0%");
+
+  renderTrialCountdown(sub);
 
   const avatarEl = document.getElementById("topbar-avatar");
   if (avatarEl && shopName) {

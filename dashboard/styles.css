@@ -1026,3 +1026,21 @@ body.sb-dark .channel-setup-card { border-color: var(--line); }
 /* Softer disconnect — destructive intent kept via confirm() dialog in JS */
 .tg-disconnect-btn { color: var(--danger); }
 .tg-disconnect-btn:hover { background: var(--danger-soft); }
+
+/* ── Trial countdown badge in sidebar ────────────────────────────────────── */
+.trial-countdown {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  margin: 4px 0 6px 0;
+  line-height: 1.3;
+}
+.trial-countdown-ok      { color: var(--success-text); background: var(--success-bg); }
+.trial-countdown-warn    { color: #b45309; background: rgba(245,158,11,0.14); }
+.trial-countdown-danger  { color: var(--danger); background: var(--danger-soft); }
+body.sb-dark .trial-countdown-ok     { color: #4ade80; background: rgba(34,197,94,0.16); }
+body.sb-dark .trial-countdown-warn   { color: #fbbf24; background: rgba(251,191,36,0.18); }
+body.sb-dark .trial-countdown-danger { color: #fca5a5; background: rgba(239,68,68,0.20); }
