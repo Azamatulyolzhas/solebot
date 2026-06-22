@@ -964,7 +964,15 @@ body.sb-dark .channel-setup-card { border-color: var(--line); }
   .brand     { padding: 0; flex: 1; }
   .nav       { flex-direction: row; flex-wrap: wrap; flex: 100%; padding: 0; order: 10; }
   .nav-item  { width: auto; flex: none; }
-  .sidebar-plan { display: none; }
+  /* Sidebar plan-card collapses to just the trial countdown badge — the
+     full card with progress bar takes too much room on a phone. */
+  .sidebar-plan {
+    display: flex; align-items: center;
+    padding: 0; background: transparent;
+    border: none; box-shadow: none; flex: none;
+  }
+  .sidebar-plan-title, .sidebar-plan-info,
+  .sidebar-plan-bar, .sidebar-plan-action { display: none; }
   .sidebar-foot { border: none; padding: 0; }
   .topbar    { padding: 13px 16px; }
   .topbar-search { display: none; }
@@ -1068,3 +1076,21 @@ body.sb-dark .email-verify-banner-text strong { color: #fbbf24; }
 body.sb-dark .trial-countdown-ok     { color: #4ade80; background: rgba(34,197,94,0.16); }
 body.sb-dark .trial-countdown-warn   { color: #fbbf24; background: rgba(251,191,36,0.18); }
 body.sb-dark .trial-countdown-danger { color: #fca5a5; background: rgba(239,68,68,0.20); }
+
+/* ── Mobile-specific overrides for sprint additions ─────────────────────── */
+@media (max-width: 760px) {
+  /* Email verify banner: stack text + actions; buttons fill the row */
+  .email-verify-banner { flex-direction: column; align-items: stretch; }
+  .email-verify-banner-actions { display: flex; gap: 8px; }
+  .email-verify-banner-actions .btn { flex: 1; }
+
+  /* Sandbox chat: input + Send + Reset would overflow — wrap to second row */
+  .sandbox-input-row { flex-wrap: wrap; }
+  .sandbox-input-row input { flex: 100%; min-width: 0; }
+  /* Bubbles can use more of the width on a narrow viewport */
+  .sandbox-msg { max-width: 92%; }
+  .sandbox-log { height: 260px; }
+
+  /* Trial badge — tighten so it fits in the squeezed sidebar row */
+  .trial-countdown { margin: 0; }
+}

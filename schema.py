@@ -311,6 +311,15 @@ def ensure_app_tables() -> None:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS email_sent_log (
+                    id BIGSERIAL PRIMARY KEY,
+                    shop_id BIGINT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+                    kind TEXT NOT NULL,
+                    sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (shop_id, kind)
+                )
+            """)
             # If you have pre-existing shops at deploy time, grandfather them ONCE
             # with: UPDATE shops SET email_verified = TRUE WHERE created_at < NOW();
             # New signups go through verify-email automatically.
@@ -478,6 +487,15 @@ def ensure_app_tables() -> None:
                     expires_at TIMESTAMP NOT NULL,
                     used INTEGER NOT NULL DEFAULT 0,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS email_sent_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    shop_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (shop_id, kind)
                 )
             """)
 

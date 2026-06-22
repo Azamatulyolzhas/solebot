@@ -181,6 +181,72 @@ def send_shop_welcome(
     return _send(owner_email, f"Магазин «{safe_name}» активирован — добро пожаловать", html)
 
 
+def send_onboarding_day3(
+    shop_name: str,
+    owner_email: str,
+    *,
+    has_tg_bot: bool,
+    has_catalog: bool,
+) -> bool:
+    """Day-3 nudge — content varies by what's NOT done yet."""
+    dashboard_url = SHOP_DASHBOARD_URL.rstrip("/") + "/shop"
+    safe_name = _html_escape(shop_name)
+    blocks = []
+    if not has_tg_bot:
+        blocks.append(
+            "<li>Подключите Telegram-бота. Откройте <a href='https://t.me/BotFather'>@BotFather</a>, "
+            "создайте бота, скопируйте токен и вставьте в разделе «Агент».</li>"
+        )
+    if not has_catalog:
+        blocks.append(
+            "<li>Загрузите каталог. CSV-импорт или подключение МойСклад — бот отвечает только по вашим товарам.</li>"
+        )
+    if not blocks:
+        # Both done — congratulate and nudge towards sandbox test.
+        blocks.append(
+            "<li>Всё готово технически. Зайдите в «Тестировать агента» — проверьте как бот отвечает на типичные вопросы клиентов.</li>"
+        )
+    items = "\n".join(blocks)
+    html = f"""
+    <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px;">
+      <h2 style="color:#2563eb;">3 дня с Vendly — как дела с настройкой?</h2>
+      <p>Привет! Магазин <strong>{safe_name}</strong> зарегистрирован, осталось пара шагов:</p>
+      <ul style="line-height:1.6">{items}</ul>
+      <a href="{dashboard_url}"
+         style="display:inline-block;margin-top:16px;padding:12px 24px;
+                background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">
+        Открыть кабинет
+      </a>
+      <p style="margin-top:32px;color:#6b7280;font-size:13px;">
+        Если что-то не получается — ответьте на это письмо, я помогу.
+      </p>
+    </div>
+    """
+    return _send(owner_email, f"3 дня с Vendly — как дела с настройкой?", html)
+
+
+def send_onboarding_day10(shop_name: str, owner_email: str, *, days_left: int) -> bool:
+    """Day-10 trial-ending warning. days_left typically 3-5 depending on trial length."""
+    dashboard_url = SHOP_DASHBOARD_URL.rstrip("/") + "/shop"
+    safe_name = _html_escape(shop_name)
+    html = f"""
+    <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px;">
+      <h2 style="color:#ea580c;">Trial магазина «{safe_name}» — осталось {days_left} дн.</h2>
+      <p>Пробный доступ заканчивается через {days_left} {'день' if days_left == 1 else 'дня' if days_left < 5 else 'дней'}.
+      Чтобы бот продолжил отвечать клиентам, продлите тариф.</p>
+      <a href="{dashboard_url}"
+         style="display:inline-block;margin-top:16px;padding:12px 24px;
+                background:#ea580c;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">
+        Выбрать тариф
+      </a>
+      <p style="margin-top:24px;color:#6b7280;font-size:13px;">
+        Когда trial истечёт, бот ответит клиентам нейтральным «менеджер свяжется», а владелец получит уведомление.
+      </p>
+    </div>
+    """
+    return _send(owner_email, f"Trial магазина «{safe_name}» — осталось {days_left} дн.", html)
+
+
 def send_new_order(
     shop_name: str,
     owner_email: str,

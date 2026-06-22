@@ -178,6 +178,22 @@ async def admin_applications(request: Request):
     return {"items": list_pending_shops()}
 
 
+@router.post("/cron/onboarding")
+async def admin_cron_onboarding(request: Request):
+    """Idempotent cron entry — hit it hourly (or daily) from Railway Cron /
+    GitHub Actions / cron-job.org. Sends pending day-3 nudges and day-10
+    trial-ending warnings.
+
+    Admin-auth so external schedulers must use the admin bearer token.
+    Race-safe via UNIQUE(shop_id, kind) on email_sent_log.
+    """
+    from onboarding import process_pending_onboarding_emails
+
+    require_admin(request)
+    counts = process_pending_onboarding_emails()
+    return {"ok": True, **counts}
+
+
 @router.get("/backup")
 async def admin_backup(request: Request, shop_id: int | None = None):
     """Stream a ZIP of all whitelisted tables as CSV. Optional ?shop_id=N
