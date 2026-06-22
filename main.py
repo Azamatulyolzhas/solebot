@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from cache import close_redis
 from config import ALLOWED_ORIGINS
 from db import close_db_pool
+from observability import init_sentry
 from routes.admin import router as admin_router
 from routes.api import router as api_router
 from routes.shop import router as shop_router
@@ -20,6 +21,10 @@ from telegram_bot import close_default_bot, close_shop_bots, setup_default_webho
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+
+# Initialise Sentry BEFORE the FastAPI app so the FastApiIntegration can hook in.
+# No-op when SENTRY_DSN is empty.
+init_sentry()
 
 ADMIN_DIR     = Path(__file__).parent / "admin"
 STORE_DIR     = Path(__file__).parent / "store"

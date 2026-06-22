@@ -178,6 +178,27 @@ async def admin_applications(request: Request):
     return {"items": list_pending_shops()}
 
 
+@router.get("/backup")
+async def admin_backup(request: Request, shop_id: int | None = None):
+    """Stream a ZIP of all whitelisted tables as CSV. Optional ?shop_id=N
+    filters to a single shop's rows (for data-portability requests).
+
+    For production-grade infra backups, also enable Railway's Postgres
+    built-in backups via Railway dashboard — this endpoint is the
+    belt-and-suspenders manual export.
+    """
+    from fastapi.responses import Response
+    from backup import export_all_tables_zip
+
+    require_admin(request)
+    zip_bytes, filename = export_all_tables_zip(shop_id=shop_id)
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/funnel")
 async def admin_funnel(request: Request):
     """Activation funnel: distinct shops at each stage + conversion vs previous."""

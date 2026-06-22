@@ -690,6 +690,22 @@ async function loadAll() {
   renderOverview();
 }
 
+document.getElementById("backup-download-btn")?.addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = "Готовлю архив…";
+  try {
+    await downloadWithAuth("/admin/backup", "vendly-backup.zip");
+    showToast("Бэкап скачан", "success");
+  } catch (err) {
+    showToast(err.message || "Ошибка", "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
+
 async function loadFunnel() {
   const target = document.getElementById("funnel-content");
   if (!target) return;

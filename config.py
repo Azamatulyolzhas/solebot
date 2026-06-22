@@ -56,6 +56,10 @@ JWT_TTL_DAYS = int(os.getenv("JWT_TTL_DAYS", "30"))
 PAYMENT_KASPI = os.getenv("PAYMENT_KASPI", "")        # Kaspi Gold number
 PAYMENT_DETAILS = os.getenv("PAYMENT_DETAILS", "")    # Extra payment instructions
 
+# Sentry (https://sentry.io). Leave empty in dev — init is gated on this being set.
+SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0"))
+
 # Email notifications via Resend (https://resend.com)
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@solebot.app")

@@ -105,6 +105,20 @@
             </table>
           </div>
         </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Резервная копия</h2>
+            <span class="muted">CSV всех таблиц в ZIP-архиве</span>
+          </div>
+          <div class="panel-body">
+            <p class="muted small" style="margin:0 0 12px 0">
+              Внеплановый дамп всей платформы. Для регулярных бэкапов используйте
+              Railway → Postgres → Backups (daily, автоматически).
+            </p>
+            <button id="backup-download-btn" class="btn" type="button">Скачать полный бэкап</button>
+          </div>
+        </div>
       </section>
 
       <!-- ЗАЯВКИ -->
