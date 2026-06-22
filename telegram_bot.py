@@ -90,30 +90,11 @@ async def register_shop_bot(shop: dict) -> None:
 
         @dp.message()
         async def shop_message(msg: Message):
-            from billing import CUSTOMER_UNAVAILABLE_TEXT, check_message_quota, is_subscription_active
-            from notifications import notify_owner_quota_exhausted, notify_owner_subscription_expired
-
-            if not is_subscription_active(shop_id):
-                try:
-                    await notify_owner_subscription_expired(shop_id)
-                except Exception:
-                    log.exception("Subscription owner alert failed shop=%s", shop_id)
-                await msg.answer(CUSTOMER_UNAVAILABLE_TEXT)
-                return
-            allowed, used, limit = check_message_quota(shop_id)
-            if not allowed:
-                try:
-                    await notify_owner_quota_exhausted(shop_id, used, limit)
-                except Exception:
-                    log.exception("Quota owner alert failed shop=%s", shop_id)
-                await msg.answer(CUSTOMER_UNAVAILABLE_TEXT)
-                return
+            # is_subscription_active + check_message_quota used to run here AND
+            # again inside ask_ai (4 redundant DB queries per inbound message).
+            # ask_ai is the single gate now — on exhaustion it returns
+            # CUSTOMER_UNAVAILABLE_TEXT and dispatches the owner alert itself.
             user_id = f"tg_{shop_id}_{msg.from_user.id}"
-
-            if await get_handoff_state(user_id):
-                await msg.answer("Менеджер скоро свяжется с вами. Чтобы снова общаться с ботом — напишите /start.")
-                return
-
             await msg.bot.send_chat_action(msg.chat.id, "typing")
             reply = await ask_ai(user_id, msg.text or "", shop_id=shop_id)
 
