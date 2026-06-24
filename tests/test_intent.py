@@ -48,8 +48,9 @@ class TestClassifyIntent:
 
 
 class TestInRoleReplies:
-    def test_offtopic_redirects_to_tech(self):
-        assert "техник" in ai.offtopic_reply({}).lower()
+    def test_offtopic_redirects_to_shop_generically(self):
+        out = ai.offtopic_reply({}).lower()
+        assert "магазин" in out and "подобрать" in out
 
     def test_jailbreak_refuses_discount_in_role(self):
         out = ai.jailbreak_reply({}).lower()

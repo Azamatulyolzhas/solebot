@@ -712,19 +712,32 @@ async def get_relevant_products(
     if found:
         return found
 
-    # Fallback: send full catalog to Groq (original behaviour)
+    # Deterministic keyword backstop — data-driven (matches the shop's OWN catalog
+    # words + morphological variants, nothing hardcoded), so it works for any
+    # vertical. Cross-language/slang recall is handled semantically by the LLM
+    # search prompt. Runs regardless of api_key so search works without Groq.
+    words = extract_query_words(query)
+    kw = search_products_db(words, shop_id, limit=limit) if words else []
+
     all_products = get_all_catalog_products(shop_id)
-    if not all_products or not api_key:
-        return []
+    llm: list[dict] = []
+    if all_products and api_key:
+        from ai import find_products_via_ai
+        from shops import get_shop_by_id
 
-    from ai import find_products_via_ai
-    from shops import get_shop_by_id
+        shop = shop or get_shop_by_id(shop_id) or {}
+        llm = await find_products_via_ai(
+            shop, query, all_products, api_key, shop_id, history=history or [],
+        )
 
-    shop = shop or get_shop_by_id(shop_id) or {}
-    found = await find_products_via_ai(
-        shop, query, all_products, api_key, shop_id, history=history or [],
-    )
-    return found[:limit]
+    # LLM (semantic) hits first, then keyword-only additions as a recall backstop.
+    merged: list[dict] = list(llm)
+    seen = {p.get("id") for p in merged}
+    for p in kw:
+        if p.get("id") not in seen:
+            merged.append(p)
+            seen.add(p.get("id"))
+    return merged[:limit]
 
 
 def _stock_label(qty: int) -> str:

@@ -106,6 +106,17 @@ class TestValidateGroqReply:
         reply = "Nike Air Force 1, размер 42, цена 45000 тенге."
         assert ai.validate_groq_reply(reply, self.products, require_product=True)
 
+    def test_allows_number_inside_product_name(self):
+        # 'Forerunner 265' — the 265 in the model name must NOT read as a fake price
+        products = [{"name": "Garmin Forerunner 265", "price": 290000, "sku": "WCH-GM-FR265"}]
+        reply = "Garmin Forerunner 265 — отличные часы за 290000 тенге."
+        assert ai.validate_groq_reply(reply, products, require_product=True)
+
+    def test_still_rejects_invented_price_with_name_numbers(self):
+        products = [{"name": "Galaxy A55", "price": 180000, "sku": "PH-SS-A55"}]
+        reply = "Samsung Galaxy A55 за 999000 тенге."  # 999000 invented
+        assert not ai.validate_groq_reply(reply, products, require_product=True)
+
 
 # ── _clean_reply ───────────────────────────────────────────────────────────────
 
