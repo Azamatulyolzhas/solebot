@@ -173,3 +173,52 @@ class TestTrimHistory:
             {"role": "assistant", "content": "ok"},
         ]
         assert ai._trim_history(history) == [{"role": "assistant", "content": "ok"}]
+
+
+# ── _persona_line (greeting double-word fix) ────────────────────────────────────
+
+class TestPersonaLine:
+    def test_role_with_magazin_no_double(self):
+        out = ai._persona_line("консультант магазина техники", "TechnoDom")
+        assert out == "консультант магазина техники «TechnoDom»"
+        assert "магазина техники магазина" not in out
+
+    def test_role_without_magazin_adds_it(self):
+        assert ai._persona_line("продавец", "TechnoDom") == "продавец магазина «TechnoDom»"
+
+    def test_blank_or_default_name_returns_role_only(self):
+        assert ai._persona_line("консультант", "") == "консультант"
+        assert ai._persona_line("консультант", "магазина") == "консультант"
+
+
+# ── _avoid_identical_repeat ─────────────────────────────────────────────────────
+
+class TestAvoidIdenticalRepeat:
+    def test_appends_nudge_when_identical_to_last_bot_msg(self):
+        history = [{"role": "assistant", "content": "Список A"}]
+        out = ai._avoid_identical_repeat("Список A", history)
+        assert out != "Список A"
+        assert out.startswith("Список A")
+
+    def test_unchanged_when_different(self):
+        history = [{"role": "assistant", "content": "Список A"}]
+        assert ai._avoid_identical_repeat("Список B", history) == "Список B"
+
+    def test_unchanged_when_no_history(self):
+        assert ai._avoid_identical_repeat("Список A", []) == "Список A"
+
+    def test_ignores_user_messages_for_comparison(self):
+        history = [{"role": "user", "content": "Список A"}]
+        assert ai._avoid_identical_repeat("Список A", history) == "Список A"
+
+
+# ── product_reply_fallback (non-bare list) ──────────────────────────────────────
+
+class TestProductReplyFallback:
+    def test_multi_item_adds_followup_question(self):
+        products = [
+            {"name": "A", "price": 100, "quantity": 1},
+            {"name": "B", "price": 200, "quantity": 1},
+        ]
+        out = ai.product_reply_fallback(products)
+        assert "подробнее" in out.lower()

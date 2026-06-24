@@ -99,7 +99,9 @@ _ANTI_HALLUCINATION_RULES = (
     "- Скидки, акции, бонусы, промокоды обещать нельзя, если их нет в данных. "
     "Если клиент спросил про скидку, а её нет — честно скажи, что скидок сейчас нет.\n"
     "- Если спрашивают характеристику, которой нет в каталоге, не выдумывай, ответь: "
-    "'Это лучше уточнить у менеджера — напишите \"хочу купить\", и он свяжется с вами'.\n\n"
+    "'Это лучше уточнить у менеджера — напишите \"хочу купить\", и он свяжется с вами'.\n"
+    "- Называй только точные цены из каталога. Не выдумывай ценовые диапазоны "
+    "('до N₸', 'от N₸', 'около N'), если такого числа нет в каталоге.\n\n"
     "И ещё раз самое важное: говори только о том, что реально есть в КАТАЛОГЕ."
 )
 
@@ -175,6 +177,20 @@ def _shop_persona(shop: dict) -> tuple[str, str, str]:
     shop_name = (shop.get("name") or "магазина").strip()
     custom = (shop.get("groq_system_prompt") or "").strip()
     return bot_role, shop_name, custom
+
+
+def _persona_line(bot_role: str, shop_name: str) -> str:
+    """Compose 'role + shop' without doubling the word 'магазин'.
+
+    bot_role is often already 'консультант магазина техники', so the old template
+    'Я {role} магазина {name}' produced 'магазина техники магазина technodom'."""
+    role = (bot_role or "консультант").strip()
+    name = (shop_name or "").strip()
+    if not name or name.lower() == "магазина":
+        return role
+    if "магазин" in role.lower():
+        return f"{role} «{name}»"
+    return f"{role} магазина «{name}»"
 
 
 def _product_sku_key(product: dict) -> str:
@@ -393,14 +409,42 @@ def _append_order_hint(reply: str) -> str:
 
 
 def product_reply_fallback(products: list[dict]) -> str:
-    return _append_order_hint(format_catalog_reply(products))
+    reply = format_catalog_reply(products)
+    if len(products) > 1:
+        reply += "\n\nЧто из этого показать подробнее?"
+    return _append_order_hint(reply)
+
+
+# Modes whose reply is product/list content where a verbatim repeat looks broken.
+_DEDUP_MODES = frozenset({
+    "catalog_browse", "catalog_exact", "ai_product", "ai_followup",
+    "catalog_validated_fallback",
+})
+
+
+def _last_assistant_text(history: list[dict]) -> str:
+    for msg in reversed(history or []):
+        if msg.get("role") == "assistant":
+            return (msg.get("content") or "").strip()
+    return ""
+
+
+def _avoid_identical_repeat(reply: str, history: list[dict]) -> str:
+    """Never send a reply byte-identical to the previous bot message.
+
+    Re-dumping the same catalog list when the customer pushes back ('но дорого')
+    reads like a broken bot. If we're about to repeat, nudge forward instead."""
+    prev = _last_assistant_text(history)
+    if prev and (reply or "").strip() == prev:
+        return f"{reply}\n\nПодсказать, что выбрать под вашу задачу, или показать подробнее?"
+    return reply
 
 
 def greeting_reply(shop_id: int) -> str:
     shop = get_shop_by_id(shop_id) or {}
     bot_role, shop_name, _ = _shop_persona(shop)
     return (
-        f"Привет! Я {bot_role} магазина {shop_name}.\n"
+        f"Привет! Я {_persona_line(bot_role, shop_name)}.\n"
         "Спросите о товаре или опишите, что ищете — проверю каталог и подскажу."
     )
 
@@ -523,7 +567,7 @@ async def build_product_reply(
         mode = "ai_product"
 
     system = (
-        f"Ты {bot_role} магазина {shop_name}. Ты живой человек, а не бот.\n\n"
+        f"Ты {_persona_line(bot_role, shop_name)}. Ты живой человек, а не бот.\n\n"
         f"ТОН И СТИЛЬ:\n{tone}\n\n"
         f"{_ANTI_HALLUCINATION_RULES}\n\n"
         f"{_SOFT_CLOSE_RULES}\n\n"
@@ -571,7 +615,7 @@ async def build_greeting_reply(
     bot_role, shop_name, custom = _shop_persona(shop)
     tone = custom or DEFAULT_TONE_PROMPT
     system = (
-        f"Ты {bot_role} магазина {shop_name}.\n\n"
+        f"Ты {_persona_line(bot_role, shop_name)}.\n\n"
         f"ТОН И СТИЛЬ:\n{tone}\n\n"
         f"{_ANTI_HALLUCINATION_RULES}\n\n"
         "СИТУАЦИЯ:\nКлиент поздоровался. Поздоровайся и спроси что ищет — "
@@ -775,6 +819,9 @@ async def ask_ai(
                 "Передаю вас менеджеру — он скоро свяжется. "
                 "Чтобы снова общаться с ботом — напишите /start."
             )
+
+    if mode in _DEDUP_MODES:
+        reply = _avoid_identical_repeat(reply, history)
 
     await save_ai_result(
         user_id, conversation_id, channel, user_message, reply,

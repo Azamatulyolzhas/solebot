@@ -754,11 +754,15 @@ def format_catalog_reply(items: list[dict]) -> str:
 def format_browse_reply(shop_id: int | None = None) -> str:
     """List in-stock catalog without LLM."""
     shop_id = resolve_shop_id(shop_id)
-    models = get_catalog_summary(shop_id, limit=30)
+    models = get_catalog_summary(shop_id, limit=12)
     if not models:
         return "Каталог пока пуст. Уточните у менеджера, когда появятся товары."
-    lines = [f"• {r['name']} — {r.get('min_price') or r.get('price') or 0}₸" for r in models]
-    return "Вот что есть на складе:\n" + "\n".join(lines)
+    shown = models[:7]
+    lines = [f"• {r['name']} — {r.get('min_price') or r.get('price') or 0}₸" for r in shown]
+    body = "Вот что есть на складе:\n" + "\n".join(lines)
+    if len(models) > 7:
+        body += "\n…и не только — напишите категорию, чтобы сузить."
+    return body + "\n\nЧто ищете? Назовите модель или задачу — подберу точнее 🙂"
 
 
 async def get_relevant_sneakers(
