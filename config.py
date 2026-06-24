@@ -22,6 +22,9 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 # model via env — no code change. Rollback = unset GROQ_MODEL.
 #   GROQ_MODEL=llama-3.3-70b-versatile
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip()
+# Cheap/fast model used ONLY for intent classification (one short call per message).
+# Keep it small — classification is easy and we don't want to pay 70B for it.
+GROQ_CLASSIFIER_MODEL = os.getenv("GROQ_CLASSIFIER_MODEL", "llama-3.1-8b-instant").strip()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
