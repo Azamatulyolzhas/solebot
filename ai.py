@@ -27,7 +27,7 @@ from cache import (
     set_last_product_interest,
     set_last_shown_products,
 )
-from config import RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS
+from config import GROQ_MODEL, RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS
 from conversations import (
     get_or_create_conversation,
     load_recent_messages,
@@ -35,7 +35,7 @@ from conversations import (
     save_message,
     split_user_id,
 )
-from orders import handle_order_flow
+from orders import ORDER_TRIGGERS, handle_order_flow
 from products import (
     format_browse_reply,
     format_catalog_reply,
@@ -49,9 +49,8 @@ from shops import get_shop_by_id, resolve_shop_id
 
 log = logging.getLogger(__name__)
 
-GROQ_MODEL = "llama-3.1-8b-instant"
 GROQ_MAX_TOKENS = 350
-GROQ_SEARCH_MAX_TOKENS = 80
+GROQ_SEARCH_MAX_TOKENS = 128
 GROQ_RETRIES = 3
 HISTORY_LIMIT = 8
 
@@ -62,7 +61,13 @@ _FOLLOWUP_MARKERS = (
     "в наличии", "осталось", "сколько штук",
 )
 
-_FORBIDDEN_REPLY_MARKERS = ("скидк", "акци", "бонус", "промокод", "распродаж")
+# Discount/promo word stems. We don't ban these outright — that made the honest
+# answer "скидок нет" impossible. Instead a discount word is only rejected when it
+# is *asserted* (no negation nearby). See _mentions_unbacked_discount.
+_DISCOUNT_STEMS = ("скидк", "акци", "бонус", "промокод", "распродаж")
+_NEGATION_TOKENS = frozenset({
+    "нет", "нету", "без", "не", "пока", "отсутствует", "отсутствуют",
+})
 
 _REJECTION_WORDS = frozenset({
     "нет", "не хочу", "не надо", "не интересно", "нет спасибо",
@@ -81,41 +86,69 @@ _GREETING_PHRASES = (
 )
 
 _ANTI_HALLUCINATION_RULES = (
-    "ЖЁСТКИЕ ПРАВИЛА (обязательны всегда):\n"
-    "- Товары, цены и остатки — ТОЛЬКО из блока КАТАЛОГ ниже\n"
-    "- Не выдумывай товары, бренды и характеристики\n"
-    "- Если нужного товара нет в каталоге — скажи честно\n"
-    "- Не называй себя выдуманным именем — только роль из настроек\n\n"
-    "ФОРМАТ ОТВЕТА:\n"
-    "- Пиши простым текстом без markdown: без **, *, #, _\n"
-    "- Не более 1 эмодзи на весь ответ\n"
-    "- Грамотный русский язык: 'У нас есть', а не 'Нам есть'\n"
-    "- Коротко — 2–4 предложения максимум\n\n"
-    "ЗАПРЕЩЕНО:\n"
-    "- предлагать скидки, акции, бонусы которых нет в каталоге\n"
-    "- додумывать назначение товара если его нет в описании\n"
-    "- задавать больше одного уточняющего вопроса\n"
-    "- отвечать на вопросы не связанные с каталогом магазина\n\n"
-    "ПРАВИЛО про характеристики:\n"
-    "- упоминай ТОЛЬКО характеристики из поля attributes каждого товара\n"
-    "- если attributes пустой — не придумывай характеристики вообще\n"
-    "- если клиент спрашивает характеристику которой нет в каталоге — "
-    "ответь: 'Уточните у менеджера, напишите хочу купить'"
+    "ГЛАВНОЕ ПРАВИЛО (важнее всего остального):\n"
+    "Товары, цены, остатки и характеристики бери ТОЛЬКО из блока КАТАЛОГ ниже. "
+    "Чего там нет — того у нас нет, так и говори честно. Ничего не выдумывай: "
+    "ни товары, ни бренды, ни цены, ни характеристики.\n\n"
+    "КАК ОТВЕЧАТЬ:\n"
+    "- Живо и по-человечески, как настоящий продавец, а не как робот.\n"
+    "- Коротко: 2–4 предложения, обычный текст без markdown (без * # _), максимум 1 эмодзи.\n"
+    "- Грамотный русский: 'У нас есть', а не 'Нам есть'.\n"
+    "- Называй себя только своей ролью, не придумывай себе имя.\n\n"
+    "ЧЕСТНОСТЬ ПРО СКИДКИ И ХАРАКТЕРИСТИКИ:\n"
+    "- Скидки, акции, бонусы, промокоды обещать нельзя, если их нет в данных. "
+    "Если клиент спросил про скидку, а её нет — честно скажи, что скидок сейчас нет.\n"
+    "- Если спрашивают характеристику, которой нет в каталоге, не выдумывай, ответь: "
+    "'Это лучше уточнить у менеджера — напишите \"хочу купить\", и он свяжется с вами'.\n\n"
+    "И ещё раз самое важное: говори только о том, что реально есть в КАТАЛОГЕ."
+)
+
+# Two-line sales guidance injected into the product-reply prompt: how to gently
+# push toward a purchase without being pushy or inventing offers.
+_SOFT_CLOSE_RULES = (
+    "КАК МЯГКО ДОЖИМАТЬ (важно):\n"
+    "- Сначала по делу ответь на вопрос, потом сделай ОДИН шаг вперёд: либо короткий "
+    "уточняющий вопрос (размер, цвет, бюджет), либо мягкое предложение оформить заказ.\n"
+    "- Один шаг за ответ, без напора и без повторов.\n"
+    "- Если по каталогу товара осталось мало — честно скажи 'осталось N шт', это правда "
+    "и помогает клиенту решиться. Цифру бери только из остатка в каталоге."
+)
+
+# Compact one-shot example. Uses placeholders, not a real product, so the small
+# model copies the STYLE without parroting an invented item into live answers.
+_PRODUCT_EXAMPLE = (
+    "ПРИМЕР ХОРОШЕГО ОТВЕТА (повтори стиль, но товары бери из своего КАТАЛОГА):\n"
+    "Клиент: посоветуйте что-нибудь для бега\n"
+    "Ты: Под бег хорошо подойдёт [товар из каталога] — лёгкие и удобные, [цена] ₸. "
+    "В наличии есть. Какой у вас размер? Подберу и оформим 🙂\n\n"
+    "ПРИМЕР ПЛОХОГО ОТВЕТА (так НЕ делай):\n"
+    "Ты: У нас акция -20%, этот бренд лучший в мире, берите не думая!\n"
+    "(плохо: выдуманы скидка и оценка, которых нет в данных)"
+)
+
+# Appended to the system prompt only on a retry, after a reply failed validation.
+_RETRY_REMINDER = (
+    "ВНИМАНИЕ: прошлый ответ нарушил правила. Используй ТОЛЬКО товары, цены и "
+    "остатки из КАТАЛОГА. Не упоминай скидки и акции, если их нет в данных."
 )
 
 DEFAULT_TONE_PROMPT = (
-    "Будь дружелюбным консультантом. Помогай клиенту разобраться и выбрать из того, "
-    "что реально есть в магазине."
+    "Ты тёплый и внимательный продавец-консультант. Говоришь просто и по-доброму, "
+    "помогаешь выбрать из того, что реально есть в магазине, и мягко ведёшь к покупке."
 )
 
 _ORDER_HINT = 'Если хотите оформить заказ — напишите "хочу купить" 🛒'
 
 _PRODUCT_SEARCH_SYSTEM = (
-    "Ты помощник по подбору товаров. По запросу клиента выбери релевантные позиции "
-    "ТОЛЬКО из каталога ниже.\n"
-    "Ответь ТОЛЬКО SKU через запятую (без текста, без пояснений).\n"
-    "Если ничего не подходит — ответь ровно: NONE"
+    "Ты — поисковый движок по каталогу. Найди в каталоге ниже позиции под запрос клиента.\n"
+    "Верни ТОЛЬКО их SKU через запятую, одной строкой. Без вступлений, без названий "
+    "товаров, без пояснений.\n"
+    "Пример правильного ответа: ABC-123, DEF-456\n"
+    "Если ничего не подходит — верни ровно: NONE"
 )
+
+# SKU tokens look like AUD-AP-AP4 / AF1-42 / id:123 — alphanumerics with - _ :
+_SKU_TOKEN_RE = re.compile(r"[A-Za-z0-9_:\-]+")
 
 
 def is_greeting(message: str) -> bool:
@@ -175,6 +208,30 @@ def _parse_sku_response(raw: str | None) -> list[str]:
     if first_line.upper() == "NONE":
         return []
     return [token.strip() for token in first_line.split(",") if token.strip()]
+
+
+def _match_known_skus(raw: str | None, sku_map: dict[str, dict]) -> list[dict]:
+    """Pull catalog products out of the search model's reply, robustly.
+
+    The model is asked for bare comma-separated SKUs, but stronger models often
+    wrap them in prose ('У нас есть:\\nAUD-AP-AP4, AirPods 4\\n...') or spread them
+    across lines. So we scan the WHOLE reply for tokens that match a known SKU,
+    instead of trusting the first line. Order = first appearance, deduped."""
+    text = (raw or "").strip()
+    if not text or text.upper() == "NONE":
+        return []
+    found: list[dict] = []
+    seen_ids: set = set()
+    for token in _SKU_TOKEN_RE.findall(text):
+        product = sku_map.get(token.lower())
+        if not product:
+            continue
+        pid = product.get("id")
+        if pid in seen_ids:
+            continue
+        seen_ids.add(pid)
+        found.append(product)
+    return found
 
 
 def _trim_history(history: list[dict], limit: int = HISTORY_LIMIT) -> list[dict]:
@@ -241,6 +298,39 @@ def _product_facts(products: list[dict]) -> str:
     return "\n".join(lines) if lines else "- (каталог пуст)"
 
 
+def _allowed_numbers(products: list[dict]) -> set[str]:
+    """Numbers (>=3 digits) the bot is allowed to say: prices, stock counts and
+    any figures inside product attributes (e.g. '256' for 256 ГБ). This stops the
+    validator from rejecting honest mentions of stock or specs as 'fake prices'."""
+    allowed: set[str] = set()
+    for p in products:
+        allowed.add(str(int(p.get("price") or 0)))
+        qty = p.get("quantity")
+        if qty is not None:
+            allowed.add(str(int(qty)))
+        attrs = p.get("attributes") or {}
+        if attrs:
+            allowed.update(re.findall(r"\d+", json.dumps(attrs, ensure_ascii=False)))
+    return allowed
+
+
+def _mentions_unbacked_discount(reply_lower: str) -> bool:
+    """True only if the reply *asserts* a discount/promo (no negation nearby).
+
+    A bare denial like 'скидок сейчас нет' is fine — that's the honest answer when
+    a customer asks. A positive claim like 'сегодня скидка!' is not, since the bot
+    has no offer data. We treat a discount word as a denial when a negation token
+    sits within a few words of it."""
+    words = re.findall(r"\w+", reply_lower)
+    for i, word in enumerate(words):
+        if not any(word.startswith(stem) for stem in _DISCOUNT_STEMS):
+            continue
+        window = words[max(0, i - 5): i + 6]
+        if not any(w in _NEGATION_TOKENS for w in window):
+            return True
+    return False
+
+
 def validate_groq_reply(
     reply: str,
     products: list[dict],
@@ -253,12 +343,11 @@ def validate_groq_reply(
 
     reply_lower = reply.lower()
 
-    mentioned_prices = {p for p in re.findall(r"\d+", reply) if len(p) >= 3}
-    allowed_prices = {str(int(p.get("price") or 0)) for p in products}
-    if mentioned_prices - allowed_prices:
+    mentioned_numbers = {n for n in re.findall(r"\d+", reply) if len(n) >= 3}
+    if mentioned_numbers - _allowed_numbers(products):
         return False
 
-    if any(marker in reply_lower for marker in _FORBIDDEN_REPLY_MARKERS):
+    if _mentions_unbacked_discount(reply_lower):
         return False
 
     if require_product:
@@ -293,7 +382,12 @@ def _clean_reply(text: str) -> str:
 
 def _append_order_hint(reply: str) -> str:
     text = _clean_reply(reply or "")
-    if not text or _ORDER_HINT in text:
+    if not text:
+        return text
+    # Skip the canned hint when the reply already drives to an order — either it
+    # carries our sentinel, or the model wrote its own "хочу купить"-style CTA.
+    low = text.lower()
+    if _ORDER_HINT in text or any(trigger in low for trigger in ORDER_TRIGGERS):
         return text
     return f"{text}\n\n{_ORDER_HINT}"
 
@@ -341,6 +435,11 @@ async def _groq_messages(
 
     data = resp.json()
     usage = data.get("usage") or {}
+    # Groq echoes back the model it actually served — thread it through `usage`
+    # so save_ai_result can log/record which model answered each message.
+    served_model = data.get("model")
+    if served_model:
+        usage["model"] = served_model
     if data.get("error"):
         log.error("Groq error shop=%s: %s", shop_id, data["error"])
         return None, usage
@@ -384,24 +483,11 @@ async def find_products_via_ai(
         temperature=0.1,
         max_tokens=GROQ_SEARCH_MAX_TOKENS,
     )
-    sku_tokens = _parse_sku_response(raw)
+    found = _match_known_skus(raw, sku_map)
     log.info(
-        "AI product search shop=%s query=%r skus=%r raw=%r",
-        shop_id, user_query[:80], sku_tokens, (raw or "")[:120],
+        "AI product search shop=%s query=%r hits=%s raw=%r",
+        shop_id, user_query[:80], len(found), (raw or "")[:120],
     )
-
-    found: list[dict] = []
-    seen_ids: set = set()
-    for token in sku_tokens:
-        product = sku_map.get(token.lower())
-        if not product:
-            continue
-        pid = product.get("id")
-        if pid in seen_ids:
-            continue
-        seen_ids.add(pid)
-        found.append(product)
-
     return found
 
 
@@ -422,40 +508,45 @@ async def build_product_reply(
     if followup:
         situation = (
             f"Клиент уточняет про товар(ы) из недавнего диалога: {user_query}\n"
-            "Ответь на вопрос, опираясь на историю и каталог. "
-            "Не запускай новый поиск — используй товары из каталога выше."
+            "Ответь на вопрос, опираясь на историю и каталог. Не запускай новый поиск — "
+            "используй товары из каталога выше. После ответа мягко предложи следующий шаг."
         )
         require_product = False
         mode = "ai_followup"
     else:
         situation = (
-            f"Клиент спросил: {user_query}\n"
-            "Ответь по-человечески, учитывая контекст диалога. "
-            "Используй только товары и цены из каталога. Не задавай лишних вопросов."
+            f"Клиент написал: {user_query}\n"
+            "Ответь как живой консультант: коротко помоги выбрать из каталога и сделай "
+            "один шаг к покупке (уточняющий вопрос или мягкое предложение оформить)."
         )
         require_product = True
         mode = "ai_product"
 
     system = (
-        f"Ты {bot_role} магазина {shop_name}.\n\n"
+        f"Ты {bot_role} магазина {shop_name}. Ты живой человек, а не бот.\n\n"
         f"ТОН И СТИЛЬ:\n{tone}\n\n"
         f"{_ANTI_HALLUCINATION_RULES}\n\n"
+        f"{_SOFT_CLOSE_RULES}\n\n"
         f"{catalog_block}\n\n"
-        f"СИТУАЦИЯ:\n{situation}"
+        f"СИТУАЦИЯ:\n{situation}\n\n"
+        f"{_PRODUCT_EXAMPLE}"
     )
     usage: dict = {}
     groq_history = _trim_history(history or [])
 
     for attempt in range(GROQ_RETRIES):
+        # On a retry the previous reply broke a rule — remind harder and lower the
+        # temperature toward grounding instead of raising it toward creativity.
+        sys_content = system if attempt == 0 else f"{system}\n\n{_RETRY_REMINDER}"
         reply, usage = await _groq_messages(
             shop_id,
             [
-                {"role": "system", "content": system},
+                {"role": "system", "content": sys_content},
                 *groq_history,
                 {"role": "user", "content": user_query},
             ],
             api_key,
-            temperature=0.4 + (attempt * 0.05),
+            temperature=max(0.2, 0.4 - attempt * 0.1),
         )
         if reply and validate_groq_reply(reply, products, require_product=require_product):
             return _append_order_hint(reply), usage, mode
@@ -706,6 +797,12 @@ async def save_ai_result(
 ) -> None:
     latency_ms = int((time.perf_counter() - started_at) * 1000)
     usage = usage or {}
+    model_used = usage.get("model")
+    # Visible in Railway logs — shows which model actually answered each message.
+    log.info(
+        "AI reply shop=%s mode=%s model=%s latency=%sms",
+        shop_id, mode, model_used or "-", latency_ms,
+    )
     try:
         if conversation_id is not None:
             save_message(conversation_id, "assistant", reply)
@@ -722,6 +819,7 @@ async def save_ai_result(
                 "reply": reply,
                 "latency_ms": latency_ms,
                 "rag_products": product_count,
+                "model": model_used,
                 "total_tokens": usage.get("total_tokens", 0),
                 "prompt_tokens": usage.get("prompt_tokens", 0),
                 "completion_tokens": usage.get("completion_tokens", 0),

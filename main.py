@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from cache import close_redis
-from config import ALLOWED_ORIGINS
+from config import ALLOWED_ORIGINS, GROQ_MODEL
 from db import close_db_pool
 from observability import init_sentry
 from routes.admin import router as admin_router
@@ -41,6 +41,8 @@ async def lifespan(app: FastAPI):
         log.info("Database app tables are ready")
     except Exception as e:
         log.error(f"Database app table setup failed: {e}")
+
+    log.info("Groq consultant model (configured): %s", GROQ_MODEL)
 
     await setup_default_webhook()
     await setup_shop_bots()

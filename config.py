@@ -17,6 +17,11 @@ IS_PRODUCTION = (
 )
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+# Model for the consultant bot. Default is the fast/cheap 8B. For much better
+# answer quality (fewer hallucinations, more human tone) switch to a 70B-class
+# model via env — no code change. Rollback = unset GROQ_MODEL.
+#   GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
