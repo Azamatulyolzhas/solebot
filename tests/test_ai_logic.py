@@ -233,3 +233,32 @@ class TestProductReplyFallback:
         ]
         out = ai.product_reply_fallback(products)
         assert "подробнее" in out.lower()
+
+
+# ── is_affirmation (confirmation must not re-search) ─────────────────────────────
+
+class TestIsAffirmation:
+    def test_yes_and_selection_variants(self):
+        assert ai.is_affirmation("Да")
+        assert ai.is_affirmation("ок")
+        assert ai.is_affirmation("давай 43")
+        assert ai.is_affirmation("43")
+
+    def test_real_product_query_is_not_affirmation(self):
+        assert not ai.is_affirmation("хочу кроссовки для бега")
+        assert not ai.is_affirmation("давай тогда 43")  # 3 words = a refinement
+        assert not ai.is_affirmation("")
+
+
+# ── _interest_names (no 'Nike, Nike' in orders) ─────────────────────────────────
+
+class TestInterestNames:
+    def test_dedupes_and_caps_to_three(self):
+        products = [
+            {"name": "Nike AF1"}, {"name": "Nike AF1"},
+            {"name": "Adidas UB22"}, {"name": "Asics Gel"}, {"name": "NB 574"},
+        ]
+        assert ai._interest_names(products) == "Nike AF1, Adidas UB22, Asics Gel"
+
+    def test_skips_blank_names(self):
+        assert ai._interest_names([{"name": ""}, {"name": "Adidas"}]) == "Adidas"

@@ -187,6 +187,39 @@ def is_rejection(message: str) -> bool:
     return any(word in text.split() or text == word for word in _REJECTION_WORDS)
 
 
+_AFFIRMATIONS = frozenset({
+    "да", "ага", "угу", "ок", "окей", "ok", "okay", "yes", "давай", "давайте",
+    "беру", "возьму", "согласен", "согласна", "конечно", "подходит",
+    "оформляй", "оформляйте", "годится",
+})
+
+
+def is_affirmation(message: str) -> bool:
+    """Short confirmation / selection like 'да', 'ок', 'давай 43', '43'.
+
+    Such a message confirms or narrows the CURRENT product. It must not trigger a
+    fresh catalog search that overwrites the running product interest with
+    unrelated hits — that polluted an order with products the client never asked
+    for. Routed through the follow-up path (the already-shown products) instead."""
+    words = re.sub(r"[^\w\s]", " ", (message or "").lower()).split()
+    if not words or len(words) > 2:
+        return False
+    return all(w in _AFFIRMATIONS or w.isdigit() for w in words)
+
+
+def _interest_names(products: list[dict], limit: int = 3) -> str:
+    """Comma-joined unique product names for the running interest / order summary.
+    Dedupes by name so size/colour variants of one model don't read as 'X, X'."""
+    names: list[str] = []
+    for p in products:
+        name = (p.get("name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= limit:
+            break
+    return ", ".join(names)
+
+
 def _shop_persona(shop: dict) -> tuple[str, str, str]:
     bot_role = (shop.get("bot_role") or "консультант").strip()
     shop_name = (shop.get("name") or "магазина").strip()
@@ -919,7 +952,7 @@ async def ask_ai(
                 shop_id, shop, prior[:8], user_message, api_key,
                 history=groq_history, objection=True,
             )
-            await set_last_product_interest(user_id, ", ".join(p["name"] for p in prior[:3]))
+            await set_last_product_interest(user_id, _interest_names(prior))
             await set_last_shown_products(user_id, prior[:8])
             await clear_miss_count(user_id)
             reply = _avoid_identical_repeat(reply, history)
@@ -946,7 +979,7 @@ async def ask_ai(
             )
             return reply
 
-        if is_followup_question(user_message, last_interest):
+        if is_followup_question(user_message, last_interest) or is_affirmation(user_message):
             matched = await resolve_followup_products(user_id, shop_id)
             is_followup = bool(matched)
             log.info(
@@ -989,8 +1022,7 @@ async def ask_ai(
             mode = "catalog_not_found"
 
     if matched:
-        interest = ", ".join(item["name"] for item in matched[:3])
-        await set_last_product_interest(user_id, interest)
+        await set_last_product_interest(user_id, _interest_names(matched))
         await set_last_shown_products(user_id, matched[:8])
         await clear_miss_count(user_id)
     elif mode == "catalog_not_found":
