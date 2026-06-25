@@ -62,5 +62,18 @@ class TestLooksLikeReturn:
         assert ai._looks_like_return("Нееееет постой")
         assert ai._looks_like_return("стоп, не надо менеджера")
 
+    def test_bot_keyword_returns(self):
+        assert ai._looks_like_return("бот")
+
     def test_normal_product_query_is_not_return(self):
         assert not ai._looks_like_return("покажите наушники")
+
+
+class TestWantsManager:
+    def test_detects_manager_request(self):
+        assert ai._wants_manager("позовите менеджера")
+        assert ai._wants_manager("хочу оператора")
+        assert ai._wants_manager("свяжите с человеком")
+
+    def test_normal_query_is_not_manager(self):
+        assert not ai._wants_manager("покажите наушники")

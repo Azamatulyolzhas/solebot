@@ -98,8 +98,10 @@ _ANTI_HALLUCINATION_RULES = (
     "ни товары, ни бренды, ни цены, ни характеристики.\n\n"
     "КАК ОТВЕЧАТЬ:\n"
     "- Живо и по-человечески, как настоящий продавец, а не как робот.\n"
+    "- Отвечай на том же языке, на котором пишет клиент (русский, казахский или их "
+    "смесь). Названия товаров оставляй как в каталоге.\n"
     "- Коротко: 2–4 предложения, обычный текст без markdown (без * # _), максимум 1 эмодзи.\n"
-    "- Грамотный русский: 'У нас есть', а не 'Нам есть'.\n"
+    "- Грамотный язык, без калек и ошибок.\n"
     "- Называй себя только своей ролью, не придумывай себе имя.\n\n"
     "ЧЕСТНОСТЬ ПРО СКИДКИ И ХАРАКТЕРИСТИКИ:\n"
     "- Скидки, акции, бонусы, промокоды обещать нельзя, если их нет в данных. "
@@ -146,6 +148,10 @@ DEFAULT_TONE_PROMPT = (
 )
 
 _ORDER_HINT = 'Если хотите оформить заказ — напишите "хочу купить" 🛒'
+# Sentinel appended to the soft-handoff offer. telegram_bot.py strips it and shows
+# [Позвать менеджера] / [Искать дальше] buttons; on other channels it stays as
+# readable text and the 'менеджер' keyword (_wants_manager) does the same job.
+_HANDOFF_HINT = 'Если нужен живой менеджер — напишите «менеджер», и я подключу человека.'
 
 _PRODUCT_SEARCH_SYSTEM = (
     "Ты — поисковый движок по каталогу магазина. Найди позиции под запрос клиента, "
@@ -563,12 +569,23 @@ async def build_product_reply(
     *,
     history: list[dict] | None = None,
     followup: bool = False,
+    objection: bool = False,
 ) -> tuple[str, dict, str]:
     """Groq reformulates answer from DB facts only (temperature=0.4)."""
     bot_role, shop_name, custom = _shop_persona(shop)
     tone = custom or DEFAULT_TONE_PROMPT
     catalog_block = "КАТАЛОГ (только эти товары и цены):\n" + _product_facts(products)
-    if followup:
+    if objection:
+        situation = (
+            f"Клиент считает, что дорого, или просит дешевле: {user_query}\n"
+            "Не оправдывайся и не выдумывай скидку. Предложи самый доступный вариант "
+            "из каталога выше (он идёт первым), коротко подчеркни его ценность по фактам "
+            "из каталога, и спроси, на какой бюджет ориентируется. Если дешевле в "
+            "каталоге действительно нет — честно скажи это и обоснуй ценность."
+        )
+        require_product = True
+        mode = "ai_objection"
+    elif followup:
         situation = (
             f"Клиент уточняет про товар(ы) из недавнего диалога: {user_query}\n"
             "Ответь на вопрос, опираясь на историю и каталог. Не запускай новый поиск — "
@@ -724,7 +741,7 @@ def jailbreak_reply(shop: dict) -> str:
 
 _RETURN_MARKERS = (
     "постой", "посто", "стоп", "стой", "вернись", "верни", "назад",
-    "не надо", "не нужно", "отмена",
+    "не надо", "не нужно", "отмена", "бот",
 )
 
 
@@ -732,6 +749,19 @@ def _looks_like_return(message: str) -> bool:
     """Customer trying to get back from a manager-handoff to the bot."""
     text = (message or "").lower()
     return any(marker in text for marker in _RETURN_MARKERS)
+
+
+_MANAGER_MARKERS = (
+    "менеджер", "оператор", "живой человек", "живого человека",
+    "позови человека", "свяжите с", "call manager", "real human",
+)
+
+
+def _wants_manager(message: str) -> bool:
+    """Customer explicitly asking for a live person (text path; the Telegram
+    button does the same via a callback)."""
+    text = (message or "").lower()
+    return any(marker in text for marker in _MANAGER_MARKERS)
 
 
 async def ask_ai(
@@ -838,6 +868,27 @@ async def ask_ai(
         )
         return reply
 
+    # Explicit request for a human → hand off right away (text path; the Telegram
+    # "Позвать менеджера" button does the same via a callback).
+    if _wants_manager(user_message):
+        await set_handoff_state(user_id)
+        from conversations import split_user_id as _split
+        _, ext_id = _split(user_id)
+        from notifications import notify_handoff
+        try:
+            await notify_handoff(user_id, user_message, channel, ext_id, shop_id, reason="manual")
+        except Exception:
+            log.exception("Manual handoff notify failed shop=%s", shop_id)
+        reply = (
+            "Конечно, передаю вас менеджеру — он скоро свяжется 🙌 "
+            "Чтобы вернуться к боту, напишите «бот»."
+        )
+        await save_ai_result(
+            user_id, conversation_id, channel, user_message, reply,
+            started_at, 0, "handoff_manual", shop_id=shop_id,
+        )
+        return reply
+
     # Intent routing (cheap 8B). Off-topic & jailbreak are answered in-role and
     # NEVER counted as a catalog miss — that's what trapped customers in handoff.
     intent = await classify_intent(
@@ -856,6 +907,28 @@ async def ask_ai(
     usage: dict = {}
     matched: list[dict] = []
     is_followup = False
+
+    # Price objection ('но дорого'): don't re-search — reuse what we already showed,
+    # lead with the cheapest, and let the LLM frame value + ask the budget.
+    if intent == "PRICE_OBJECTION" and api_key:
+        prior = await resolve_followup_products(user_id, shop_id)
+        if prior:
+            prior = sorted(prior, key=lambda p: int(p.get("price") or 0))
+            product_count = len(prior)
+            reply, usage, mode = await build_product_reply(
+                shop_id, shop, prior[:8], user_message, api_key,
+                history=groq_history, objection=True,
+            )
+            await set_last_product_interest(user_id, ", ".join(p["name"] for p in prior[:3]))
+            await set_last_shown_products(user_id, prior[:8])
+            await clear_miss_count(user_id)
+            reply = _avoid_identical_repeat(reply, history)
+            await save_ai_result(
+                user_id, conversation_id, channel, user_message, reply,
+                started_at, product_count, mode, usage=usage, shop_id=shop_id,
+            )
+            return reply
+        # No prior context to object to → fall through to a normal product search.
 
     # A price objection ('но дорого') must NOT fall into the generic browse list.
     if is_browse_query(user_message) and intent != "PRICE_OBJECTION":
@@ -923,19 +996,15 @@ async def ask_ai(
     elif mode == "catalog_not_found":
         miss = await inc_miss_count(user_id)
         if miss >= 3:
-            await set_handoff_state(user_id)
-            from conversations import split_user_id as _split
-            _, ext_id = _split(user_id)
-            from notifications import notify_handoff
-            await notify_handoff(
-                user_id, user_message, channel, ext_id,
-                shop_id, reason="auto",
-            )
+            # Don't trap the customer in an auto-handoff. Offer a manager via
+            # buttons/keyword but keep the bot available; reset the counter.
+            await clear_miss_count(user_id)
             reply = (
-                "Не могу найти подходящий товар в каталоге. "
-                "Передаю вас менеджеру — он скоро свяжется. "
-                "Чтобы снова общаться с ботом — напишите /start."
+                "Пока не получается подобрать под этот запрос 😅 "
+                "Назовите категорию или модель — поищу ещё. "
+                + _HANDOFF_HINT
             )
+            mode = "handoff_offer"
 
     if mode in _DEDUP_MODES:
         reply = _avoid_identical_repeat(reply, history)
