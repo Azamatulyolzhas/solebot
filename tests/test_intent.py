@@ -77,3 +77,49 @@ class TestWantsManager:
 
     def test_normal_query_is_not_manager(self):
         assert not ai._wants_manager("покажите наушники")
+
+
+class TestResolveSelectedProduct:
+    def test_single_product_returns_label(self, monkeypatch):
+        async def one(*a, **kw):
+            return [{"name": "Adidas UB22 Black", "attributes": {"размер": "43"}}]
+        monkeypatch.setattr(ai, "resolve_followup_products", one)
+        assert _run(ai.resolve_selected_product("u", 1)) == "Adidas UB22 Black (43)"
+
+    def test_multi_uses_model_pick(self, monkeypatch):
+        async def two(*a, **kw):
+            return [{"name": "A"}, {"name": "B"}]
+
+        async def hist(*a, **kw):
+            return [{"role": "user", "content": "беру второй"}]
+
+        async def pick(*a, **kw):
+            return ("2", {})
+
+        monkeypatch.setattr(ai, "resolve_followup_products", two)
+        monkeypatch.setattr(ai, "resolve_groq_api_key", lambda sid: "key")
+        monkeypatch.setattr(ai, "load_session_history", hist)
+        monkeypatch.setattr(ai, "_groq_messages", pick)
+        assert _run(ai.resolve_selected_product("u", 1)) == "B"
+
+    def test_multi_unclear_returns_none(self, monkeypatch):
+        async def two(*a, **kw):
+            return [{"name": "A"}, {"name": "B"}]
+
+        async def hist(*a, **kw):
+            return [{"role": "user", "content": "не знаю"}]
+
+        async def pick(*a, **kw):
+            return ("0", {})
+
+        monkeypatch.setattr(ai, "resolve_followup_products", two)
+        monkeypatch.setattr(ai, "resolve_groq_api_key", lambda sid: "key")
+        monkeypatch.setattr(ai, "load_session_history", hist)
+        monkeypatch.setattr(ai, "_groq_messages", pick)
+        assert _run(ai.resolve_selected_product("u", 1)) is None
+
+    def test_no_products_returns_none(self, monkeypatch):
+        async def none(*a, **kw):
+            return []
+        monkeypatch.setattr(ai, "resolve_followup_products", none)
+        assert _run(ai.resolve_selected_product("u", 1)) is None

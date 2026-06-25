@@ -340,6 +340,66 @@ async def resolve_followup_products(user_id: str, shop_id: int) -> list[dict]:
     ]
 
 
+def _product_label(product: dict) -> str:
+    """Order-friendly product name + key variant (size/colour) when the catalog
+    records it, so the order says 'Adidas Ultraboost 22 Black (43)' not just the model."""
+    name = (product.get("name") or "").strip()
+    attrs = product.get("attributes") or {}
+    extras = []
+    for key in ("размер", "size", "цвет", "color", "объём", "обьем", "память", "storage"):
+        val = attrs.get(key)
+        if val:
+            extras.append(str(val).strip())
+    return f"{name} ({', '.join(extras)})" if extras else name
+
+
+async def resolve_selected_product(user_id: str, shop_id: int) -> str | None:
+    """Best-effort: which single product did the customer settle on for the order?
+
+    Reads the last-shown products + recent dialogue. If only one was shown, that's
+    it. If several, the cheap model picks the one the client confirmed. Returns a
+    product label, or None to fall back to the running interest (all of them)."""
+    products = await resolve_followup_products(user_id, shop_id)
+    if not products:
+        return None
+    if len(products) == 1:
+        return _product_label(products[0])
+
+    api_key = resolve_groq_api_key(shop_id)
+    if not api_key:
+        return None
+    history = _trim_history(await load_session_history(user_id))
+    if not history:
+        return None
+
+    listing = "\n".join(
+        f"{i + 1}. {p.get('name')}" for i, p in enumerate(products)
+    )
+    system = (
+        "По последним сообщениям диалога определи, какой ОДИН товар из списка "
+        "клиент решил купить. Ответь ТОЛЬКО его номером. Если непонятно — ответь 0.\n\n"
+        f"СПИСОК:\n{listing}"
+    )
+    try:
+        raw, _usage = await _groq_messages(
+            shop_id,
+            [{"role": "system", "content": system}, *history],
+            api_key,
+            temperature=0.0,
+            max_tokens=4,
+            model=GROQ_CLASSIFIER_MODEL,
+        )
+    except Exception:
+        log.exception("Selected-product pick failed shop=%s", shop_id)
+        return None
+    match = re.search(r"\d+", raw or "")
+    if match:
+        idx = int(match.group()) - 1
+        if 0 <= idx < len(products):
+            return _product_label(products[idx])
+    return None
+
+
 def _product_facts(products: list[dict]) -> str:
     lines = []
     for p in products[:10]:

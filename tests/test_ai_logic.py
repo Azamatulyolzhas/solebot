@@ -262,3 +262,14 @@ class TestInterestNames:
 
     def test_skips_blank_names(self):
         assert ai._interest_names([{"name": ""}, {"name": "Adidas"}]) == "Adidas"
+
+
+# ── _product_label (precise order line) ─────────────────────────────────────────
+
+class TestProductLabel:
+    def test_appends_size_variant(self):
+        out = ai._product_label({"name": "Adidas UB22 Black", "attributes": {"размер": "43"}})
+        assert out == "Adidas UB22 Black (43)"
+
+    def test_plain_name_without_attrs(self):
+        assert ai._product_label({"name": "Adidas UB22 Black"}) == "Adidas UB22 Black"

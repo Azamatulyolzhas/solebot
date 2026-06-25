@@ -142,10 +142,19 @@ def _normalize_product_interest(message: str) -> str:
     return text
 
 
-async def _resolve_product_interest(user_id: str, user_message: str) -> str:
+async def _resolve_product_interest(user_id: str, user_message: str, shop_id: int | None = None) -> str:
     explicit = _normalize_product_interest(user_message)
     if explicit:
         return explicit
+    # Pin the single product the customer actually confirmed, not the whole
+    # discussed set (best-effort; falls back to the running interest).
+    try:
+        from ai import resolve_selected_product
+        selected = await resolve_selected_product(user_id, resolve_shop_id(shop_id))
+        if selected:
+            return selected
+    except Exception:
+        log.exception("Selected-product resolution failed for %s", user_id)
     last = await get_last_product_interest(user_id)
     return last or user_message.strip()
 
@@ -159,7 +168,7 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
             if not looks_like_order_request(user_message):
                 return None
 
-            product_interest = await _resolve_product_interest(user_id, user_message)
+            product_interest = await _resolve_product_interest(user_id, user_message, shop_id)
             await set_order_state(user_id, {
                 "step": "name",
                 "product_interest": product_interest,
