@@ -80,6 +80,37 @@ class TestSqlitePathUnchanged:
             conn.close()
 
 
+class TestReleaseReadConnection:
+    """Reads must end their implicit transaction before returning to the pool,
+    so psycopg_pool stops logging 'rolling back returned connection [INTRANS]'."""
+
+    def test_rolls_back_then_closes(self):
+        calls: list = []
+
+        class C:
+            def rollback(self):
+                calls.append("rollback")
+
+            def close(self):
+                calls.append("close")
+
+        db._release_read(C())
+        assert calls == ["rollback", "close"]
+
+    def test_closes_even_if_rollback_raises(self):
+        calls: list = []
+
+        class C:
+            def rollback(self):
+                raise RuntimeError("no txn")
+
+            def close(self):
+                calls.append("close")
+
+        db._release_read(C())
+        assert calls == ["close"]
+
+
 class TestCloseDbPoolIdempotent:
 
     def test_close_when_uninitialised_is_noop(self):

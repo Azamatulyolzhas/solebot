@@ -121,17 +121,37 @@ def db_placeholder() -> str:
     return "%s" if USE_POSTGRES else "?"
 
 
+def _release_read(conn) -> None:
+    """Return a read-only connection to the pool cleanly.
+
+    Under psycopg's default autocommit=False even a plain SELECT opens a
+    transaction. Returning the connection without ending it leaves it
+    idle-in-transaction, and psycopg_pool logs 'rolling back returned connection
+    [INTRANS]' on every read — which floods the logs. Rolling back here ends the
+    no-op read transaction so the connection goes back to the pool idle and
+    quiet. On SQLite rollback() with no open transaction is a harmless no-op."""
+    try:
+        conn.rollback()
+    except Exception:
+        pass
+    conn.close()
+
+
 def fetch_all(query: str, params: list | tuple = ()) -> list[dict]:
     conn = get_db()
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(query, params).fetchall()
+    finally:
+        _release_read(conn)
     return [dict(r) for r in rows]
 
 
 def fetch_one_value(query: str, params: list | tuple = ()):
     conn = get_db()
-    row = conn.execute(query, params).fetchone()
-    conn.close()
+    try:
+        row = conn.execute(query, params).fetchone()
+    finally:
+        _release_read(conn)
     if row is None:
         return None
     if isinstance(row, dict):
@@ -148,5 +168,12 @@ def execute_write(query: str, params: list | tuple = (), fetch_one: bool = False
         if row is None:
             return None
         return dict(row) if not isinstance(row, tuple) else row
+    except Exception:
+        # Roll back so a failed write doesn't return to the pool INTRANS either.
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         conn.close()
