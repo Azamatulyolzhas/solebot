@@ -96,9 +96,12 @@ class TestOrderFlowFix:
         assert "имя" in r2.lower()
         assert cache.order_states[uid]["product_interest"] == "New Balance 990v5"
 
-        # 3) name -> phone -> order created with the CONFIRMED product
+        # 3) name -> phone -> confirm -> order created with the CONFIRMED product
         run(orders.handle_order_flow(uid, "Иван", 1))
-        run(orders.handle_order_flow(uid, "87012345678", 1))
+        r3 = run(orders.handle_order_flow(uid, "87012345678", 1))
+        assert "проверьте заказ" in r3.lower()        # confirmation step, not created yet
+        assert "product_interest" not in captured
+        run(orders.handle_order_flow(uid, "да", 1))   # confirm -> create
         assert captured["product_interest"] == "New Balance 990v5"
         _reset(uid)
 
@@ -119,7 +122,8 @@ class TestOrderFlowFix:
 
         run(orders.handle_order_flow(uid, "хочу купить", 1))      # -> name
         run(orders.handle_order_flow(uid, "Иван", 1))            # -> phone
-        run(orders.handle_order_flow(uid, "87012345678", 1))    # -> create + clear
+        run(orders.handle_order_flow(uid, "87012345678", 1))    # -> confirm
+        run(orders.handle_order_flow(uid, "да", 1))             # -> create + clear
 
         assert captured["product_interest"] == "Adidas Ultraboost 22 Black (43)"
         # The isolation invariant: leftovers are gone after completion.

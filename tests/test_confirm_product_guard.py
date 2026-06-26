@@ -58,6 +58,17 @@ class TestConfirmResolution:
         out = run(orders._resolve_confirmed_product("tg_1_y", "адидас", 1))
         assert out == "Adidas Ultraboost 22 Black"
 
+    def test_returns_none_on_no_catalog_hit(self, monkeypatch):
+        # Pure garbage ('Роло') matches nothing → None, so the flow re-asks
+        # instead of binding the order to junk.
+        monkeypatch.setattr(orders, "resolve_shop_id", lambda s: s or 1)
+
+        async def _empty(*a, **k):
+            return []
+        monkeypatch.setattr(products, "get_relevant_products", _empty)
+
+        assert run(orders._resolve_confirmed_product("tg_1_z", "Роло", 1)) is None
+
 
 class TestFillerStopwords:
     def test_particles_filtered_from_search(self):

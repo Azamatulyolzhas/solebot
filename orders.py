@@ -129,6 +129,68 @@ def looks_like_phone(message: str) -> bool:
     return 10 <= len(digits) <= 15
 
 
+def normalize_phone(message: str) -> str | None:
+    """Validate + normalize a Kazakhstan phone to +7XXXXXXXXXX, or None.
+
+    Accepts 11 digits starting 7/8 (7700…, 8700…) or a 10-digit national number
+    starting with 7. A random 10-digit string like '5676678657' is rejected — the
+    bug where any 10–15 digits passed straight into an order."""
+    digits = re.sub(r"\D", "", message or "")
+    if len(digits) == 11 and digits[0] in "78":
+        return "+7" + digits[1:]
+    if len(digits) == 10 and digits[0] == "7":
+        return "+7" + digits
+    return None
+
+
+def _is_valid_name(name: str) -> bool:
+    """A name must contain letters — a phone number typed into the name slot
+    (e.g. '87765645633') must be rejected, not stored as the customer's name."""
+    cleaned = (name or "").strip()
+    if not cleaned or cleaned.isdigit():
+        return False
+    letters = re.sub(r"[^A-Za-zА-Яа-яЁё]", "", cleaned)
+    return len(letters) >= 2
+
+
+_CONFIRM_WORDS = frozenset({
+    "да", "ага", "угу", "ок", "окей", "ok", "okay", "yes", "верно",
+    "подтверждаю", "подтвердить", "оформляй", "оформляйте",
+    "оформляем", "точно", "правильно", "согласен", "согласна", "давай",
+    "давайте", "конечно", "ес",
+})
+_CANCEL_WORDS = frozenset({
+    "нет", "неверно", "неправильно", "отмена", "отменить", "отмени",
+    "стоп", "cancel", "no", "nope",
+})
+_CANCEL_PHRASES = ("не верно", "не правильно", "не надо", "не нужно", "не так")
+
+
+def _norm_tokens(message: str) -> list[str]:
+    return re.sub(r"[^\w\s]", " ", (message or "").lower()).split()
+
+
+def _is_confirm(message: str) -> bool:
+    return any(w in _CONFIRM_WORDS for w in _norm_tokens(message))
+
+
+def _is_cancel(message: str) -> bool:
+    text = re.sub(r"[^\w\s]", " ", (message or "").lower())
+    if any(w in _CANCEL_WORDS for w in text.split()):
+        return True
+    return any(p in text for p in _CANCEL_PHRASES)
+
+
+def _order_summary(state: dict) -> str:
+    return (
+        "Проверьте заказ:\n"
+        f"• Товар: {state.get('product_interest') or '—'}\n"
+        f"• Имя: {state.get('name') or '—'}\n"
+        f"• Телефон: {state.get('phone') or '—'}\n\n"
+        "Всё верно? Напишите «да» для подтверждения или «нет», чтобы отменить."
+    )
+
+
 def _normalize_product_interest(message: str) -> str:
     text = message.strip()
     lowered = text.lower().rstrip(".!")
@@ -210,20 +272,28 @@ def _trim_to_product_phrase(text: str) -> str:
     return " ".join(words).strip() or text
 
 
-async def _resolve_confirmed_product(user_id: str, user_message: str, shop_id: int | None = None) -> str:
-    """Resolve the product the customer named at the confirm step to a catalog
-    label. Only trusts a search hit that actually matches what the customer typed;
-    otherwise keeps their literal text (trimmed of trailing filler) — never a stale
-    or unrelated product."""
+async def _resolve_confirmed_product(user_id: str, user_message: str, shop_id: int | None = None) -> str | None:
+    """Resolve the product the customer named at the confirm step.
+
+    - Clean catalog match → the catalog label.
+    - Search found *something* (so the words relate to the catalog) but no clean
+      top match → keep the literal text, trimmed of trailing filler. A human
+      manager will read 'найк айр макс' fine; we must not dead-end a real product
+      the search just couldn't pin (cross-script).
+    - Search found NOTHING → return None. Pure garbage like 'Роло' is not a product
+      we carry, so the caller re-asks instead of binding the order to junk."""
     text = user_message.strip()
     try:
         from ai import _product_label
         from products import get_relevant_products
         hits = await get_relevant_products(text, shop_id=resolve_shop_id(shop_id))
-        if hits and _hit_matches_query(text, hits[0]):
-            return _product_label(hits[0])
     except Exception:
         log.exception("Confirm-product resolution failed for %s", user_id)
+        return _trim_to_product_phrase(text)
+    if not hits:
+        return None
+    if _hit_matches_query(text, hits[0]):
+        return _product_label(hits[0])
     return _trim_to_product_phrase(text)
 
 
@@ -252,6 +322,12 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
         step = state.get("step")
         if step == "confirm_product":
             product_interest = await _resolve_confirmed_product(user_id, user_message, shop_id)
+            if not product_interest:
+                # No catalog match at all → don't bind the order to junk, re-ask.
+                return (
+                    "Не нашёл такой товар в каталоге. Напишите точное название или "
+                    "модель — или загляните в список выше."
+                )
             state["product_interest"] = product_interest
             state["step"] = "name"
             await set_order_state(user_id, state)
@@ -259,8 +335,8 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
 
         if step == "name":
             name = user_message.strip()
-            if len(name) < 2:
-                return "Напишите, пожалуйста, имя чуть подробнее."
+            if not _is_valid_name(name):
+                return "Похоже, это не имя. Напишите, пожалуйста, как к вам обращаться."
 
             state["name"] = name
             state["step"] = "phone"
@@ -268,11 +344,24 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
             return "Спасибо. Теперь отправьте номер телефона для связи."
 
         if step == "phone":
-            phone = user_message.strip()
-            if not looks_like_phone(phone):
-                return "Похоже, это не номер телефона. Отправьте номер в формате +7..."
+            phone = normalize_phone(user_message)
+            if not phone:
+                return "Похоже, это не номер. Отправьте казахстанский номер в формате +7XXXXXXXXXX."
 
             state["phone"] = phone
+            state["step"] = "confirm"
+            await set_order_state(user_id, state)
+            # Echo the order back for an explicit confirmation BEFORE creating it.
+            return _order_summary(state)
+
+        if step == "confirm":
+            if _is_cancel(user_message):
+                await clear_order_state(user_id)
+                await clear_product_context(user_id)
+                return "Отменил оформление. Напишите «хочу купить», когда будете готовы 🙂"
+            if not _is_confirm(user_message):
+                return "Напишите «да», если всё верно, или «нет», чтобы отменить."
+
             order_id = create_order(
                 channel,
                 external_user_id,

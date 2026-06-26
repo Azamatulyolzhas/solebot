@@ -156,9 +156,14 @@ _HANDOFF_HINT = 'Если нужен живой менеджер — напиш�
 _PRODUCT_SEARCH_SYSTEM = (
     "Ты — поисковый движок по каталогу магазина. Найди позиции под запрос клиента, "
     "сопоставляя ПО СМЫСЛУ.\n"
-    "Учитывай синонимы и разговорные/жаргонные названия, опечатки, транслит и другие "
-    "языки, сокращения и бренды: народное или иноязычное название = соответствующий "
-    "товар из каталога.\n"
+    "Учитывай синонимы, разговорные/жаргонные названия, опечатки, транслит и другие "
+    "языки: народное или иноязычное НАПИСАНИЕ ТОГО ЖЕ товара = этот товар из каталога "
+    "(напр. «найки» = Nike, «адидас» = Adidas, «адик» = Adidas).\n"
+    "НО бренд и модель — ТОЧНЫЕ. Если клиент просит конкретный бренд или модель, "
+    "возвращай ТОЛЬКО товары именно этого бренда/модели. Похожий или смежный бренд, "
+    "пусть даже того же производителя, — это НЕ совпадение (напр. Jordan ≠ Nike Air "
+    "Force, Yeezy ≠ обычный Adidas). Если запрошенного бренда или модели нет в каталоге "
+    "— верни ровно NONE и НЕ подставляй другой бренд.\n"
     "Верни ТОЛЬКО SKU через запятую, одной строкой, без названий и пояснений.\n"
     "Пример формата ответа: ABC-123, DEF-456\n"
     "Если по смыслу действительно ничего не подходит — верни ровно: NONE"
@@ -571,11 +576,24 @@ def _append_order_hint(reply: str) -> str:
     return f"{text}\n\n{_ORDER_HINT}"
 
 
+def _finalize_product_reply(reply: str, products: list[dict]) -> str:
+    """Attach the buy CTA (and therefore the 🛒 button) ONLY when the customer is
+    looking at a single concrete product they can order right now.
+
+    telegram_bot.py shows the inline "Хочу купить" button whenever the reply
+    contains _ORDER_HINT. Adding the hint to every product list made the button
+    permanent. The order moment is a single picked item, so on a multi-item list
+    we omit the hint — the customer narrows down first, then gets the button."""
+    if len(products) == 1:
+        return _append_order_hint(reply)
+    return _clean_reply(reply or "")
+
+
 def product_reply_fallback(products: list[dict]) -> str:
     reply = format_catalog_reply(products)
     if len(products) > 1:
         reply += "\n\nЧто из этого показать подробнее?"
-    return _append_order_hint(reply)
+    return _finalize_product_reply(reply, products)
 
 
 # Modes whose reply is product/list content where a verbatim repeat looks broken.
@@ -745,6 +763,61 @@ def _tone_is_safe(text: str) -> bool:
     return True
 
 
+# Russian filler/common words that are NOT brands, so they're never mistaken for a
+# product the customer "asked for" when scanning the tone line for phantom brands.
+_NON_BRAND_WORDS = frozenset({
+    "именно", "интересно", "вариант", "варианты", "вариантов", "нибудь",
+    "пожалуйста", "также", "тоже", "очень", "более", "самый", "лучший", "ближе",
+    "цвет", "цвета", "размер", "размера", "модель", "модели", "какой", "какая",
+    "какие", "хочу", "нужен", "нужны", "купить", "заказать", "сколько", "есть",
+    "кроссовки", "кеды", "ботинки", "обувь", "товар", "товары", "пара",
+})
+
+
+def _query_brand_terms(user_query: str) -> list[str]:
+    """Distinctive (≥4-char, non-filler) words the customer used — candidate brand/
+    model names to check against what we actually show."""
+    from products import _content_words
+    return [
+        w for w in _content_words(user_query)
+        if len(w) >= 4 and w not in _NON_BRAND_WORDS
+    ]
+
+
+def _covered_by_products(term: str, products: list[dict]) -> bool:
+    """True if a query term corresponds (translit-aware) to a token in any shown
+    product name — i.e. these products actually include what the term names."""
+    from products import _translit_cyr_to_lat
+    lat = _translit_cyr_to_lat(term)
+    for p in products:
+        for tok in re.findall(r"[a-zа-яё0-9]+", (p.get("name") or "").lower()):
+            if len(tok) < 3:
+                continue
+            tok_lat = _translit_cyr_to_lat(tok)
+            if term in tok or tok in term or (lat and (lat in tok_lat or tok_lat in lat)):
+                return True
+    return False
+
+
+def _tone_repeats_absent_term(tone: str, user_query: str, products: list[dict]) -> bool:
+    """True if the tone line echoes a brand/model the customer named that NONE of
+    the shown products cover — a phantom affirmation ('есть Jordan?' → 'да, есть
+    варианты' over a catalog with no Jordan). Precise on purpose: it only fires when
+    the tone literally repeats the absent word, so a good tone line for a use-case
+    query ('беговые') is left untouched."""
+    absent = [t for t in _query_brand_terms(user_query) if not _covered_by_products(t, products)]
+    if not absent:
+        return False
+    from products import _translit_cyr_to_lat
+    tone_low = (tone or "").lower()
+    tone_lat = _translit_cyr_to_lat(tone_low)
+    for t in absent:
+        lat = _translit_cyr_to_lat(t)
+        if t in tone_low or (lat and lat in tone_lat):
+            return True
+    return False
+
+
 async def _build_tone_line(
     shop_id: int,
     shop: dict,
@@ -820,8 +893,14 @@ async def build_product_reply(
         shop_id, shop, user_query, api_key,
         history=history, followup=followup, objection=objection,
     )
+    # Backstop: never let the tone line affirm a brand/model the customer asked for
+    # that these products don't include. Swap it for a neutral, product-agnostic
+    # question instead of a phantom 'да, есть варианты'.
+    if tone and _tone_repeats_absent_term(tone, user_query, products):
+        kind = "objection" if objection else "followup" if followup else "default"
+        tone = _TONE_FALLBACKS[kind]
     reply = f"{cards}\n\n{tone}" if tone else cards
-    return _append_order_hint(reply), usage, mode
+    return _finalize_product_reply(reply, products), usage, mode
 
 
 async def build_greeting_reply(
@@ -888,10 +967,12 @@ async def classify_intent(
     *,
     history: list[dict] | None = None,
 ) -> str:
-    """Cheap intent router (8B). Returns one of _INTENT_LABELS.
+    """Intent router (GROQ_CLASSIFIER_MODEL). Returns one of _INTENT_LABELS.
 
-    Fail-safe: no key / error / unknown output → PRODUCT_REQUEST, so a misfire
-    never costs us a real product question."""
+    Most messages are routed deterministically before this is ever called, so the
+    extra LLM hop only runs on genuinely ambiguous input. Fail-safe: no key /
+    error / unknown output → PRODUCT_REQUEST, so a misfire never costs us a real
+    product question."""
     if not api_key or not (user_message or "").strip():
         return "PRODUCT_REQUEST"
     messages = [
@@ -1078,8 +1159,8 @@ async def ask_ai(
         )
         return reply
 
-    # Intent routing (cheap 8B). Off-topic & jailbreak are answered in-role and
-    # NEVER counted as a catalog miss — that's what trapped customers in handoff.
+    # Intent routing (GROQ_CLASSIFIER_MODEL). Off-topic & jailbreak are answered
+    # in-role and NEVER counted as a catalog miss — that trapped customers in handoff.
     intent = await classify_intent(
         shop_id, user_message, api_key, history=groq_history,
     )
@@ -1194,7 +1275,7 @@ async def ask_ai(
                 followup=is_followup,
             )
         elif matched:
-            reply = _append_order_hint(format_catalog_reply(matched))
+            reply = _finalize_product_reply(format_catalog_reply(matched), matched)
             mode = "catalog_exact"
         elif not api_key:
             reply = "Для подбора товаров по описанию нужен Groq API ключ в настройках магазина."

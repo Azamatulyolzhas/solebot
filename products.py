@@ -592,15 +592,37 @@ def get_catalog_sample(shop_id: int | None = None, limit: int = 5) -> list[dict]
     return [_normalize_row(r) for r in rows]
 
 
+# Colour adjective roots (ё already folded to е). Matching is by ROOT so any
+# inflection (синий/синие/синих) lines up with the stored colour, and a real
+# adjective ENDING is required so a noun that merely starts with the root
+# ('синтетика', 'бельё') can't be mistaken for a colour.
+_COLOR_STEMS = (
+    "бел", "черн", "красн", "син", "голуб", "зелен", "сер", "коричнев",
+    "бежев", "желт", "оранжев", "розов", "фиолетов", "бордов", "сиренев",
+)
+_COLOR_ENDINGS = (
+    "ый", "ий", "ой", "ая", "яя", "ое", "ее", "ые", "ие",
+    "ого", "его", "ому", "ему", "ым", "им", "ом", "ем", "ых", "их", "ую", "юю",
+)
+_COLOR_RE = re.compile(
+    r"\b(" + "|".join(_COLOR_STEMS) + r")(?:" + "|".join(_COLOR_ENDINGS) + r")\b"
+)
+
+
+def _norm_yo(text: str) -> str:
+    """Fold ё→е so 'чёрный'/'черный' compare equal against a stored 'чёрный'."""
+    return (text or "").replace("ё", "е")
+
+
 def extract_attribute_filters(query: str) -> dict[str, str]:
     filters: dict[str, str] = {}
-    q = query.lower()
+    q = _norm_yo(query.lower())
     size_match = re.search(r"\b(?:р(?:азмер)?\.?\s*)?([3-4][0-9](?:[.,]5)?)\b", q)
     if size_match:
         filters["size"] = size_match.group(1).replace(",", ".")
-    color_match = re.search(r"\b(бел\w+|черн\w+|красн\w+|син\w+|зелен\w+|сер\w+)\b", q)
+    color_match = _COLOR_RE.search(q)
     if color_match:
-        filters["color"] = color_match.group(1)
+        filters["color"] = color_match.group(1)  # the root, e.g. 'син'
     return filters
 
 
@@ -674,17 +696,42 @@ def _matches_attr_filters(item: dict, filters: dict[str, str]) -> bool:
     if not filters:
         return True
     attrs = item.get("attributes") or {}
-    attrs_text = json.dumps(attrs, ensure_ascii=False).lower()
-    name_desc = f"{item.get('name', '')} {item.get('description', '')}".lower()
+    attrs_text = _norm_yo(json.dumps(attrs, ensure_ascii=False).lower())
+    name_desc = _norm_yo(f"{item.get('name', '')} {item.get('description', '')}".lower())
     for key, val in filters.items():
-        val_l = val.lower()
-        attr_val = str(attrs.get(key, attrs.get("size", ""))).lower()
+        val_l = _norm_yo(val.lower())
+        attr_val = _norm_yo(str(attrs.get(key, "")).lower())
         if val_l in attr_val or val_l in attrs_text or val_l in name_desc:
-            continue
-        if key == "size" and val_l in name_desc:
             continue
         return False
     return True
+
+
+def _any_color_known(products: list[dict]) -> bool:
+    """True if at least one product records a colour — so we never empty out a
+    shop that doesn't track colour just because the customer named one."""
+    return any((p.get("attributes") or {}).get("color") for p in products)
+
+
+def _apply_attr_filters(query: str, products: list[dict]) -> list[dict]:
+    """Enforce colour/size as HARD filters on top of the loose LLM/keyword search.
+
+    Colour: enforced only when the catalog records colours; a genuine mismatch
+    yields [] on purpose — 'синий' must return nothing rather than fall back to
+    black. Size: only narrows when something matches, so a misparsed model-number
+    can't wipe the results."""
+    if not products:
+        return products
+    filters = extract_attribute_filters(query)
+    color = filters.get("color")
+    if color and _any_color_known(products):
+        products = [p for p in products if _matches_attr_filters(p, {"color": color})]
+    size = filters.get("size")
+    if size and products:
+        by_size = [p for p in products if _matches_attr_filters(p, {"size": size})]
+        if by_size:
+            products = by_size
+    return products
 
 
 def build_product_context(query: str, shop_id: int | None = None) -> tuple[str, int]:
@@ -788,7 +835,7 @@ async def get_relevant_products(
     # Fast semantic search — no tokens consumed
     found = vector_search_products(query, shop_id, limit=limit)
     if found:
-        return found
+        return _apply_attr_filters(query, found)
 
     # Deterministic keyword backstop — data-driven (matches the shop's OWN catalog
     # words + morphological variants, nothing hardcoded), so it works for any
@@ -826,7 +873,10 @@ async def get_relevant_products(
         if p.get("id") not in seen:
             merged.append(p)
             seen.add(p.get("id"))
-    return merged[:limit]
+
+    # Colour/size are structured facts — enforce them deterministically so a loose
+    # LLM match ('синий' → a black SKU coded '-B') can't leak the wrong colour.
+    return _apply_attr_filters(query, merged)[:limit]
 
 
 def _stock_label(qty: int) -> str:

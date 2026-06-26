@@ -17,14 +17,16 @@ IS_PRODUCTION = (
 )
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-# Model for the consultant bot. Default is the fast/cheap 8B. For much better
-# answer quality (fewer hallucinations, more human tone) switch to a 70B-class
-# model via env — no code change. Rollback = unset GROQ_MODEL.
+# Model for the consultant bot. The small 8B (llama-3.1-8b-instant) is being
+# retired and may be unavailable, so we standardize on a single 70B-class model
+# for everything. Override via env if a different model is provisioned.
 #   GROQ_MODEL=llama-3.3-70b-versatile
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip()
-# Cheap/fast model used ONLY for intent classification (one short call per message).
-# Keep it small — classification is easy and we don't want to pay 70B for it.
-GROQ_CLASSIFIER_MODEL = os.getenv("GROQ_CLASSIFIER_MODEL", "llama-3.1-8b-instant").strip()
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+# Intent classification used to run on a separate cheap 8B model. That model is
+# no longer guaranteed to exist, so the classifier now defaults to GROQ_MODEL.
+# (Latency is kept in check by routing most messages deterministically before
+# ever calling the classifier — see ai.py.)
+GROQ_CLASSIFIER_MODEL = os.getenv("GROQ_CLASSIFIER_MODEL", GROQ_MODEL).strip()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")

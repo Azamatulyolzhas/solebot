@@ -235,6 +235,65 @@ class TestProductReplyFallback:
         assert "подробнее" in out.lower()
 
 
+# ── _finalize_product_reply (buy CTA only on a single concrete product) ──────────
+
+class TestFinalizeProductReply:
+    def test_single_product_gets_buy_hint(self):
+        out = ai._finalize_product_reply("В каталоге: Nike Air — 100₸.", [{"name": "Nike Air"}])
+        assert ai._ORDER_HINT in out
+
+    def test_multi_product_has_no_buy_hint(self):
+        out = ai._finalize_product_reply(
+            "По каталогу нашёл:\n• A\n• B", [{"name": "A"}, {"name": "B"}]
+        )
+        assert ai._ORDER_HINT not in out
+        assert "хочу купить" not in out.lower()
+
+    def test_fallback_multi_item_has_no_buy_hint(self):
+        products = [
+            {"name": "A", "price": 100, "quantity": 1},
+            {"name": "B", "price": 200, "quantity": 1},
+        ]
+        assert ai._ORDER_HINT not in ai.product_reply_fallback(products)
+
+    def test_fallback_single_item_has_buy_hint(self):
+        assert ai._ORDER_HINT in ai.product_reply_fallback(
+            [{"name": "A", "price": 100, "quantity": 1}]
+        )
+
+
+# ── _tone_repeats_absent_term (no phantom-brand affirmation) ────────────────────
+
+class TestToneAbsentBrand:
+    _NIKE = [{"name": "Nike Air Force 1 Low"}, {"name": "Nike Air Max 90 Black"}]
+    _ADIDAS = [{"name": "Adidas Ultraboost 22 Black"}]
+
+    def test_brand_terms_drop_filler(self):
+        assert ai._query_brand_terms("есть именно джорданы?") == ["джорданы"]
+
+    def test_covered_translit(self):
+        assert ai._covered_by_products("адидас", self._ADIDAS)
+        assert not ai._covered_by_products("джорданы", self._NIKE)
+
+    def test_rejects_tone_echoing_absent_brand(self):
+        tone = "Ищете именно Джорданы, да, есть интересные варианты, какая расцветка ближе?"
+        assert ai._tone_repeats_absent_term(tone, "есть именно джорданы?", self._NIKE)
+
+    def test_allows_neutral_tone_for_absent_brand(self):
+        # Honest neutral tone doesn't echo the absent brand → allowed.
+        tone = "Подскажите, какой размер нужен — подберу точнее 🙂"
+        assert not ai._tone_repeats_absent_term(tone, "есть именно джорданы?", self._NIKE)
+
+    def test_allows_tone_for_covered_brand(self):
+        tone = "Adidas — отличный выбор! Какой размер?"
+        assert not ai._tone_repeats_absent_term(tone, "адидас", self._ADIDAS)
+
+    def test_use_case_query_not_treated_as_absent_brand(self):
+        # 'беговые' isn't echoed by a good tone → no false rejection.
+        tone = "Отличный выбор для бега! Подскажите размер 🙂"
+        assert not ai._tone_repeats_absent_term(tone, "беговые кроссовки", self._ADIDAS)
+
+
 # ── is_affirmation (confirmation must not re-search) ─────────────────────────────
 
 class TestIsAffirmation:

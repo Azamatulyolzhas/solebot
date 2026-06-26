@@ -109,7 +109,7 @@ def _orders():
 
 # ── Scenario 1: order never captures a product the customer didn't choose ──────
 def test_order_pins_confirmed_product_no_phantom(bot):
-    replies = bot(["адидас", "хочу купить", "стэн смит", "Иван", "87010000000"])
+    replies = bot(["адидас", "хочу купить", "стэн смит", "Иван", "87010000000", "да"])
     # >1 Adidas shown → pin is ambiguous → confirm step asks instead of guessing.
     assert "какой именно товар" in replies[1].lower()
     rows = _orders()
@@ -164,8 +164,8 @@ def test_followup_selection_shows_single_product(bot):
 
 # ── Scenario 6: a finished order does not bleed into the next one ──────────────
 def test_order_isolation_between_orders(bot):
-    bot(["стэн смит", "хочу купить", "Иван", "87010000000"], user_id="tg_1_iso")
-    bot(["конверс", "хочу купить", "Пётр", "87020000000"], user_id="tg_1_iso")
+    bot(["стэн смит", "хочу купить", "Иван", "87010000000", "да"], user_id="tg_1_iso")
+    bot(["конверс", "хочу купить", "Пётр", "87020000000", "да"], user_id="tg_1_iso")
     rows = _orders()
     assert len(rows) == 2
     newest = rows[0]["product_interest"]   # list_orders is DESC by id
