@@ -186,10 +186,35 @@ def _hit_matches_query(query: str, product: dict) -> bool:
     return False
 
 
+# Order-flow words that are conversational filler, not part of a product name.
+_ORDER_FILLER = {
+    "хочу", "купить", "куплю", "оформить", "оформляем", "оформи", "оформите",
+    "оформили", "заказ", "заказать", "брать", "беру", "возьму", "пожалуйста",
+}
+
+
+def _trim_to_product_phrase(text: str) -> str:
+    """Drop a TRAILING run of filler/stopwords so a confirm answer reads as the
+    product, not the whole sentence: 'найк айр макс вы же не оформили заказ' →
+    'найк айр макс'. Only trailing words are removed, so 'кроссовки для бега'
+    (a mid-phrase stopword) stays intact."""
+    from products import STOP_WORDS
+
+    words = text.split()
+    while words:
+        key = re.sub(r"[^\w-]", "", words[-1].lower())
+        if key in STOP_WORDS or key in _ORDER_FILLER:
+            words.pop()
+        else:
+            break
+    return " ".join(words).strip() or text
+
+
 async def _resolve_confirmed_product(user_id: str, user_message: str, shop_id: int | None = None) -> str:
     """Resolve the product the customer named at the confirm step to a catalog
     label. Only trusts a search hit that actually matches what the customer typed;
-    otherwise keeps their literal text — never a stale or unrelated product."""
+    otherwise keeps their literal text (trimmed of trailing filler) — never a stale
+    or unrelated product."""
     text = user_message.strip()
     try:
         from ai import _product_label
@@ -199,7 +224,7 @@ async def _resolve_confirmed_product(user_id: str, user_message: str, shop_id: i
             return _product_label(hits[0])
     except Exception:
         log.exception("Confirm-product resolution failed for %s", user_id)
-    return text
+    return _trim_to_product_phrase(text)
 
 
 async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None = None) -> str | None:

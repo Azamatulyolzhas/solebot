@@ -45,7 +45,8 @@ class TestConfirmResolution:
         text = "найк айр макс вы же не оформили заказ"
         out = run(orders._resolve_confirmed_product("tg_1_x", text, 1))
         assert "Carhartt" not in out
-        assert out == text
+        # literal kept, but trailing filler trimmed off
+        assert out == "найк айр макс"
 
     def test_uses_label_on_matching_hit(self, monkeypatch):
         monkeypatch.setattr(orders, "resolve_shop_id", lambda s: s or 1)
@@ -63,3 +64,17 @@ class TestFillerStopwords:
         words = products.extract_query_words("красные не кожаные же ещё")
         for filler in ("не", "же", "ещё", "еще"):
             assert filler not in words
+
+
+class TestTrimProductPhrase:
+    def test_trims_trailing_filler(self):
+        assert orders._trim_to_product_phrase(
+            "найк айр макс вы же не оформили заказ") == "найк айр макс"
+        assert orders._trim_to_product_phrase("адидас хочу купить") == "адидас"
+
+    def test_keeps_mid_phrase_stopword(self):
+        # 'для' is a stopword but mid-phrase — must not be trimmed.
+        assert orders._trim_to_product_phrase("кроссовки для бега") == "кроссовки для бега"
+
+    def test_all_filler_keeps_original(self):
+        assert orders._trim_to_product_phrase("хочу купить заказ") == "хочу купить заказ"
