@@ -653,6 +653,87 @@ async def find_products_via_ai(
     return found
 
 
+_TONE_FALLBACKS = {
+    "objection": "Подскажите, на какой бюджет ориентируетесь — подберу точнее 🙂",
+    "followup": "Подсказать что-то ещё или оформляем заказ?",
+    "default": "Подскажите, что для вас важнее — помогу выбрать 🙂",
+}
+
+_TONE_SYSTEM = (
+    "Ты — живой продавец-консультант: тёплый, краткий, по-человечески.\n"
+    "Список товаров с ценами, размерами и остатками клиенту УЖЕ показан отдельно — "
+    "повторять его НЕ нужно и НЕЛЬЗЯ.\n"
+    "Напиши РОВНО ОДНУ короткую фразу, которая мягко ведёт к покупке: уточняющий "
+    "вопрос (размер, цвет, бюджет, что важнее) или мягкое предложение оформить заказ.\n"
+    "СТРОГО ЗАПРЕЩЕНО называть конкретные товары, бренды, модели, цены, числа, "
+    "размеры и остатки — за факты отвечает список выше. Без списков и markdown, "
+    "обычный текст, максимум 1 эмодзи."
+)
+
+
+def _tone_is_safe(text: str) -> bool:
+    """The tone line must carry NO product facts. Reject anything with a multi-digit
+    number (price/size/stock), a currency mark, or an unbacked discount, then fall
+    back to a fixed question. Tuned to over-reject: a fabricated fact must never
+    reach the customer (the hallucinated-product bug)."""
+    if not text:
+        return False
+    if re.search(r"\d{2,}", text):
+        return False
+    low = text.lower()
+    if "₸" in text or "тенге" in low:
+        return False
+    if _mentions_unbacked_discount(low):
+        return False
+    return True
+
+
+async def _build_tone_line(
+    shop_id: int,
+    shop: dict,
+    user_query: str,
+    api_key: str,
+    *,
+    history: list[dict] | None = None,
+    followup: bool = False,
+    objection: bool = False,
+) -> tuple[str, dict]:
+    """One short, PRODUCT-AGNOSTIC tone sentence from the LLM — it never authors a
+    product/price/size/stock, so it cannot invent an item. Falls back to a fixed
+    question on no api_key, error, or an unsafe (fact-bearing) line."""
+    kind = "objection" if objection else "followup" if followup else "default"
+    fallback = _TONE_FALLBACKS[kind]
+    if not api_key:
+        return fallback, {}
+
+    bot_role, shop_name, _custom = _shop_persona(shop)
+    extra = ""
+    if objection:
+        extra = ("\nКлиент считает, что дорого. Не выдумывай скидку — мягко спроси про "
+                 "бюджет или что для него важнее.")
+    system = f"Ты {_persona_line(bot_role, shop_name)}.\n\n{_TONE_SYSTEM}{extra}"
+    try:
+        reply, usage = await _groq_messages(
+            shop_id,
+            [
+                {"role": "system", "content": system},
+                *_trim_history(history or []),
+                {"role": "user", "content": user_query},
+            ],
+            api_key,
+            temperature=0.5,
+            max_tokens=80,
+        )
+    except Exception:
+        log.exception("Tone-line generation failed shop=%s", shop_id)
+        return fallback, {}
+
+    tone = _clean_reply(reply or "")
+    if not _tone_is_safe(tone):
+        return fallback, (usage or {})
+    return tone, (usage or {})
+
+
 async def build_product_reply(
     shop_id: int,
     shop: dict,
@@ -664,72 +745,26 @@ async def build_product_reply(
     followup: bool = False,
     objection: bool = False,
 ) -> tuple[str, dict, str]:
-    """Groq reformulates answer from DB facts only (temperature=0.4)."""
-    bot_role, shop_name, custom = _shop_persona(shop)
-    tone = custom or DEFAULT_TONE_PROMPT
-    catalog_block = "КАТАЛОГ (только эти товары и цены):\n" + _product_facts(products)
-    if objection:
-        situation = (
-            f"Клиент считает, что дорого, или просит дешевле: {user_query}\n"
-            "Не оправдывайся и не выдумывай скидку. Предложи самый доступный вариант "
-            "из каталога выше (он идёт первым), коротко подчеркни его ценность по фактам "
-            "из каталога, и спроси, на какой бюджет ориентируется. Если дешевле в "
-            "каталоге действительно нет — честно скажи это и обоснуй ценность."
-        )
-        require_product = True
-        mode = "ai_objection"
-    elif followup:
-        situation = (
-            f"Клиент уточняет про товар(ы) из недавнего диалога: {user_query}\n"
-            "Ответь на вопрос, опираясь на историю и каталог. Не запускай новый поиск — "
-            "используй товары из каталога выше. После ответа мягко предложи следующий шаг."
-        )
-        require_product = False
-        mode = "ai_followup"
-    else:
-        situation = (
-            f"Клиент написал: {user_query}\n"
-            "Ответь как живой консультант: коротко помоги выбрать из каталога и сделай "
-            "один шаг к покупке (уточняющий вопрос или мягкое предложение оформить)."
-        )
-        require_product = True
-        mode = "ai_product"
+    """Product FACTS (name/price/stock) are rendered DETERMINISTICALLY from the
+    catalog rows; the LLM contributes only a short, product-agnostic tone line + one
+    follow-up question.
 
-    system = (
-        f"Ты {_persona_line(bot_role, shop_name)}. Ты живой человек, а не бот.\n\n"
-        f"ТОН И СТИЛЬ:\n{tone}\n\n"
-        f"{_ANTI_HALLUCINATION_RULES}\n\n"
-        f"{_SOFT_CLOSE_RULES}\n\n"
-        f"{catalog_block}\n\n"
-        f"СИТУАЦИЯ:\n{situation}\n\n"
-        f"{_PRODUCT_EXAMPLE}"
+    The model never authors a name/price/size/stock, so it cannot invent a product
+    that the shop doesn't carry — the class of bug where the bot offered a 'Nike Air
+    Max' that isn't in the catalog and an order got bound to it."""
+    if not products:
+        return product_not_found_reply(), {}, "catalog_not_found"
+
+    mode = "ai_objection" if objection else "ai_followup" if followup else "ai_product"
+    # Cheapest-first on an objection so the rendered list leads with the budget pick.
+    rows = sorted(products, key=lambda p: int(p.get("price") or 0)) if objection else products
+    cards = format_catalog_reply(rows[:8])
+    tone, usage = await _build_tone_line(
+        shop_id, shop, user_query, api_key,
+        history=history, followup=followup, objection=objection,
     )
-    usage: dict = {}
-    groq_history = _trim_history(history or [])
-
-    for attempt in range(GROQ_RETRIES):
-        # On a retry the previous reply broke a rule — remind harder and lower the
-        # temperature toward grounding instead of raising it toward creativity.
-        sys_content = system if attempt == 0 else f"{system}\n\n{_RETRY_REMINDER}"
-        reply, usage = await _groq_messages(
-            shop_id,
-            [
-                {"role": "system", "content": sys_content},
-                *groq_history,
-                {"role": "user", "content": user_query},
-            ],
-            api_key,
-            temperature=max(0.2, 0.4 - attempt * 0.1),
-        )
-        if reply and validate_groq_reply(reply, products, require_product=require_product):
-            return _append_order_hint(reply), usage, mode
-
-        log.warning(
-            "Product reply validation failed shop=%s attempt=%s query=%r",
-            shop_id, attempt + 1, user_query[:80],
-        )
-
-    return product_reply_fallback(products), usage, "catalog_validated_fallback"
+    reply = f"{cards}\n\n{tone}" if tone else cards
+    return _append_order_hint(reply), usage, mode
 
 
 async def build_greeting_reply(
