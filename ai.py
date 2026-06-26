@@ -672,10 +672,12 @@ _TONE_SYSTEM = (
 
 
 def _tone_is_safe(text: str) -> bool:
-    """The tone line must carry NO product facts. Reject anything with a multi-digit
-    number (price/size/stock), a currency mark, or an unbacked discount, then fall
-    back to a fixed question. Tuned to over-reject: a fabricated fact must never
-    reach the customer (the hallucinated-product bug)."""
+    """The tone line must carry NO product facts and make NO order-status claims.
+
+    Reject a multi-digit number (price/size/stock), a currency mark, an unbacked
+    discount, or any claim that an order is placed/paid — then fall back to a fixed
+    question. Tuned to over-reject: a fabricated fact, or a false 'Ваш заказ принят'
+    before the order flow has created anything, must never reach the customer."""
     if not text:
         return False
     if re.search(r"\d{2,}", text):
@@ -684,6 +686,15 @@ def _tone_is_safe(text: str) -> bool:
     if "₸" in text or "тенге" in low:
         return False
     if _mentions_unbacked_discount(low):
+        return False
+    # Only the deterministic order flow may say an order is done. An invitation
+    # ('оформляем заказ?') is fine; a completion claim ('заказ принят', 'спасибо за
+    # покупку') is not — the bot once sent it before any order existed.
+    if "спасибо за покуп" in low or "спасибо за заказ" in low:
+        return False
+    if "заказ" in low and any(
+        w in low for w in ("принят", "оформлен", "создан", "подтвержд", "сделан")
+    ):
         return False
     return True
 

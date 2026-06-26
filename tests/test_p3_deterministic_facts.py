@@ -36,6 +36,16 @@ class TestToneSafety:
     def test_rejects_empty(self):
         assert not ai._tone_is_safe("")
 
+    def test_rejects_order_completion_claim(self):
+        assert not ai._tone_is_safe("Ваш заказ принят, спасибо за покупку!")
+        assert not ai._tone_is_safe("Заказ оформлен, ждите доставку")
+        assert not ai._tone_is_safe("Спасибо за заказ!")
+
+    def test_allows_order_invitation(self):
+        # Inviting to order is fine — only CLAIMING it's done is rejected.
+        assert ai._tone_is_safe("Хотите оформить заказ?")
+        assert ai._tone_is_safe("Подсказать что-то ещё или оформляем заказ?")
+
 
 class TestBuildProductReply:
     def _patch_tone(self, monkeypatch, tone_reply):
@@ -57,6 +67,16 @@ class TestBuildProductReply:
         assert "Air Max" not in reply
         assert "42000" not in reply
         # Tone fell back to a fixed safe question:
+        assert ai._TONE_FALLBACKS["default"] in reply
+
+    def test_order_completion_claim_in_tone_dropped(self, monkeypatch):
+        # The LLM tries to claim the order is done before the flow created one.
+        self._patch_tone(monkeypatch, "Готово, ваш заказ принят! Спасибо за покупку 🙂")
+        reply, _u, _m = run(
+            ai.build_product_reply(1, {"name": "S"}, PRODUCTS, "беру", "key")
+        )
+        assert "заказ принят" not in reply.lower()
+        assert "спасибо за покупку" not in reply.lower()
         assert ai._TONE_FALLBACKS["default"] in reply
 
     def test_safe_tone_is_kept(self, monkeypatch):
