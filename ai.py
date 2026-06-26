@@ -207,6 +207,47 @@ def is_affirmation(message: str) -> bool:
     return all(w in _AFFIRMATIONS or w.isdigit() for w in words)
 
 
+_ORDINAL_STEMS = {"перв": 1, "втор": 2, "трет": 3, "четверт": 4, "пят": 5}
+
+
+def _select_one(message: str, products: list[dict]) -> dict | None:
+    """Pick the ONE product a short selection refers to within an already-shown set.
+
+    Handles an ordinal ('2', '2 вариант', 'второй') and a unique name/brand mention
+    (transliteration-aware). Returns None when the message doesn't single one out, so
+    the caller keeps the full set (e.g. a size like '42' or an ambiguous brand)."""
+    if not products:
+        return None
+    if len(products) == 1:
+        return products[0]
+    msg = (message or "").lower()
+
+    n = None
+    m = re.search(r"\b([1-9])\b", msg)  # single digit only — a 2-digit size never selects
+    if m:
+        n = int(m.group(1))
+    else:
+        for stem, idx in _ORDINAL_STEMS.items():
+            if stem in msg:
+                n = idx
+                break
+    if n is not None and 1 <= n <= len(products):
+        return products[n - 1]
+
+    from products import _content_words, _translit_cyr_to_lat
+    words = [w for w in _content_words(msg) if len(w) >= 3]
+    hits: list[dict] = []
+    for p in products:
+        name = (p.get("name") or "").lower()
+        name_lat = _translit_cyr_to_lat(name)
+        for w in words:
+            lat = _translit_cyr_to_lat(w)
+            if w in name or (lat and (lat in name or lat in name_lat)):
+                hits.append(p)
+                break
+    return hits[0] if len(hits) == 1 else None
+
+
 def _interest_names(products: list[dict], limit: int = 3) -> str:
     """Comma-joined unique product names for the running interest / order summary.
     Dedupes by name so size/colour variants of one model don't read as 'X, X'."""
@@ -327,7 +368,12 @@ async def resolve_followup_products(user_id: str, shop_id: int) -> list[dict]:
         ids = [item["id"] for item in stored if item.get("id") is not None]
         products = get_products_by_ids(shop_id, ids)
         if products:
-            return products
+            # Preserve the order the customer actually saw — get_products_by_ids
+            # sorts by name, but an ordinal pick ('2 вариант') must map to the card
+            # that was shown second.
+            by_id = {p.get("id"): p for p in products}
+            ordered = [by_id[i] for i in ids if i in by_id]
+            return ordered or products
 
     interest = await get_last_product_interest(user_id)
     if not interest:
@@ -806,8 +852,12 @@ async def build_greeting_reply(
         api_key,
         temperature=0.4,
     )
-    if reply:
-        return _clean_reply(reply), usage, "ai_greeting"
+    # Same discipline as the product tone line: a greeting must carry no product
+    # facts or order claims. If the model sneaks in a price/product/"заказ принят",
+    # fall back to the deterministic greeting instead of forwarding it.
+    cleaned = _clean_reply(reply or "")
+    if cleaned and _tone_is_safe(cleaned):
+        return cleaned, usage, "ai_greeting"
     return greeting_reply(shop_id), {}, "greeting"
 
 
@@ -1124,6 +1174,16 @@ async def ask_ai(
                     "Follow-up fallback shop_id=%s products=%s query=%r",
                     shop_id, len(matched), user_message[:100],
                 )
+
+        # On a selection within an already-shown set ('2 вариант', 'давай нью баланс'),
+        # narrow to the ONE product the customer picked — so we show its card instead
+        # of re-listing everything, and last_shown reflects the single pick for the
+        # order. Returns the set unchanged when nothing is singled out.
+        if is_followup and len(matched) > 1:
+            picked = _select_one(user_message, matched)
+            if picked is not None:
+                matched = [picked]
+                log.info("Follow-up narrowed shop_id=%s to %r", shop_id, picked.get("name"))
 
         product_count = len(matched)
 

@@ -151,6 +151,17 @@ def test_no_invented_product(bot):
     assert "Air Max" not in reply
 
 
+# ── Scenario 7: a followup selection narrows to ONE product card ──────────────
+def test_followup_selection_shows_single_product(bot):
+    replies = bot(["адидас", "2 вариант"])
+    both = replies[0]
+    assert "Adidas Ultraboost 22 Black" in both and "Adidas Stan Smith" in both
+    # the selection narrows to exactly one of the two Adidas
+    sel = replies[1]
+    shown = ("Adidas Ultraboost 22 Black" in sel, "Adidas Stan Smith" in sel)
+    assert shown.count(True) == 1
+
+
 # ── Scenario 6: a finished order does not bleed into the next one ──────────────
 def test_order_isolation_between_orders(bot):
     bot(["стэн смит", "хочу купить", "Иван", "87010000000"], user_id="tg_1_iso")
