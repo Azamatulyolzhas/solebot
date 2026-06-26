@@ -1,4 +1,5 @@
 import csv
+import difflib
 import io
 import json
 import re
@@ -21,9 +22,13 @@ STOP_WORDS = {
     "занимаюсь", "занимается", "который", "которая", "которые",
 }
 
-BROWSE_TERMS = {
-    "каталог", "ассортимент", "товары", "товар", "что есть", "что у вас",
-    "покажи все", "весь каталог", "catalog", "products",
+# Words that signal "just show me everything" rather than a specific need. A query
+# counts as browse ONLY when every meaningful word is in here (see is_browse_query):
+# 'покажи товары' → browse, but 'товары для футбола' → search. Greetings/stopwords
+# like 'покажи', 'что', 'есть' are stripped as STOP_WORDS before the check.
+BROWSE_VOCAB = {
+    "каталог", "ассортимент", "товар", "товары", "catalog", "products",
+    "весь", "вся", "всё", "все", "all",
 }
 
 CATALOG_CHAR_LIMIT = 3000
@@ -417,6 +422,63 @@ def _search_word_variants(word: str) -> list[str]:
     return out
 
 
+# Phonetic Cyrillic → Latin. Digraphs first so 'ш'→'sh' resolves before single
+# letters. This is SCRIPT-level only — no brand or vertical words — so it stays
+# universal: it just lets a customer's Cyrillic spelling of a Latin catalog token
+# ('адидас') line up with the catalog's own word ('Adidas').
+_TRANSLIT_PAIRS = [
+    ("щ", "sch"), ("ш", "sh"), ("ч", "ch"), ("ц", "ts"), ("ю", "yu"),
+    ("я", "ya"), ("ж", "zh"), ("х", "kh"), ("ё", "e"), ("й", "y"),
+    ("ъ", ""), ("ь", ""),
+    ("а", "a"), ("б", "b"), ("в", "v"), ("г", "g"), ("д", "d"), ("е", "e"),
+    ("з", "z"), ("и", "i"), ("к", "k"), ("л", "l"), ("м", "m"), ("н", "n"),
+    ("о", "o"), ("п", "p"), ("р", "r"), ("с", "s"), ("т", "t"), ("у", "u"),
+    ("ф", "f"), ("ы", "y"), ("э", "e"),
+]
+
+
+def _translit_cyr_to_lat(word: str) -> str:
+    w = (word or "").lower()
+    if not any("а" <= ch <= "я" or ch == "ё" for ch in w):
+        return w
+    for cyr, lat in _TRANSLIT_PAIRS:
+        w = w.replace(cyr, lat)
+    return w
+
+
+def _catalog_name_tokens(products: list[dict]) -> list[str]:
+    """Distinct lowercase word tokens (≥3 chars) from product names — the shop's
+    OWN vocabulary, so any bridge can only ever match words that really exist."""
+    tokens: set[str] = set()
+    for p in products:
+        for tok in re.findall(r"[a-zа-яё0-9]+", (p.get("name") or "").lower()):
+            if len(tok) >= 3:
+                tokens.add(tok)
+    return list(tokens)
+
+
+def _bridge_translit_to_catalog(
+    words: list[str], catalog_tokens: list[str], cutoff: float = 0.72
+) -> list[str]:
+    """Bridge phonetic Cyrillic brand spellings to the catalog's Latin tokens.
+
+    For each Cyrillic query word we transliterate ('баланс' → 'balans') and fuzzy-
+    match it against the shop's own name tokens ('balance'). Returns the matched
+    catalog tokens to add to the keyword search. No hardcoded brands: it only ever
+    returns tokens already present in THIS shop's catalog, so it stays universal."""
+    if not catalog_tokens:
+        return []
+    extra: list[str] = []
+    for w in words:
+        lat = _translit_cyr_to_lat(w)
+        if lat == w or len(lat) < 3:
+            continue  # not Cyrillic (or too short) — nothing to bridge
+        for match in difflib.get_close_matches(lat, catalog_tokens, n=2, cutoff=cutoff):
+            if match not in extra and match not in words:
+                extra.append(match)
+    return extra
+
+
 def extract_query_words(query: str) -> list[str]:
     q_lower = query.lower()
     raw = [
@@ -539,11 +601,24 @@ def extract_attribute_filters(query: str) -> dict[str, str]:
     return filters
 
 
+def _content_words(query: str) -> list[str]:
+    """Meaningful words (minus stopwords), WITHOUT morphological variants — used
+    for the browse check, where variants like 'весь'→'вес' would only add noise."""
+    return [
+        w for w in re.findall(r"[\w-]+", (query or "").lower())
+        if len(w) >= 2 and w not in STOP_WORDS
+    ]
+
+
 def is_browse_query(query: str) -> bool:
-    q = query.lower()
-    if any(term in q for term in BROWSE_TERMS):
-        return True
-    return not extract_query_words(query)
+    content = _content_words(query)
+    if not content:
+        return True  # only greeting/stopwords/punctuation → show the catalog
+    # Browse ONLY when EVERY meaningful word is browse vocabulary ('весь каталог',
+    # 'покажи товары'). A topic word alongside it ('товары для ФУТБОЛА') means the
+    # customer wants a search — the old substring test matched 'товары', dumped the
+    # whole catalog and silently dropped 'футбол' (BUG 1).
+    return all(w in BROWSE_VOCAB for w in content)
 
 
 def _fmt_attrs(attrs: dict) -> str:
@@ -717,9 +792,20 @@ async def get_relevant_products(
     # vertical. Cross-language/slang recall is handled semantically by the LLM
     # search prompt. Runs regardless of api_key so search works without Groq.
     words = extract_query_words(query)
+    all_products = get_all_catalog_products(shop_id)
+
+    # Cross-script bridge: a phonetic Cyrillic brand ('адидас', 'нью баланс') won't
+    # substring-match the catalog's Latin words. Transliterate + fuzzy-match the
+    # query words against the shop's own name tokens and add the hits, so the
+    # keyword search recovers them instead of dead-ending in 'не нашёл' (BUG 2).
+    if words and all_products:
+        bridged = _bridge_translit_to_catalog(words, _catalog_name_tokens(all_products))
+        if bridged:
+            words = words + bridged
+            log.info("Translit bridge shop=%s added=%s", shop_id, bridged)
+
     kw = search_products_db(words, shop_id, limit=limit) if words else []
 
-    all_products = get_all_catalog_products(shop_id)
     llm: list[dict] = []
     if all_products and api_key:
         from ai import find_products_via_ai

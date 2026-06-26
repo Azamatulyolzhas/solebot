@@ -284,6 +284,28 @@ async def clear_order_state(user_id: str) -> None:
         order_states.pop(user_id, None)
 
 
+async def clear_product_context(user_id: str) -> None:
+    """Drop the running product interest + last-shown set.
+
+    Called when an order completes so a finished purchase can't bleed its
+    products into the customer's NEXT order. Without this, interest/shown
+    survive the order (clear_order_state only clears the FSM), and a later
+    'хочу купить' pulls a stale, possibly multi-product string into the order
+    — the phantom-product bug (BUG 3)."""
+    try:
+        client = await get_redis()
+        if client is None:
+            last_product_interest.pop(user_id, None)
+            last_shown_products.pop(user_id, None)
+            return
+
+        await client.delete(f"interest:{user_id}", f"shown:{user_id}")
+    except Exception as e:
+        log.error(f"Clear product context failed: {e}")
+        last_product_interest.pop(user_id, None)
+        last_shown_products.pop(user_id, None)
+
+
 # ── Handoff state ──────────────────────────────────────────────────────────────
 
 _handoff_states: dict[str, bool] = {}

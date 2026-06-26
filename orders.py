@@ -3,7 +3,7 @@ import re
 
 from cache import (
     clear_order_state,
-    get_last_product_interest,
+    clear_product_context,
     get_order_state,
     set_order_state,
 )
@@ -146,8 +146,11 @@ async def _resolve_product_interest(user_id: str, user_message: str, shop_id: in
     explicit = _normalize_product_interest(user_message)
     if explicit:
         return explicit
-    # Pin the single product the customer actually confirmed, not the whole
-    # discussed set (best-effort; falls back to the running interest).
+    # Pin the SINGLE product the customer confirmed in THIS session. On any
+    # uncertainty return "" so the caller asks "which one?" instead of guessing.
+    # We deliberately do NOT fall back to the running interest: that shipped the
+    # whole discussed set — and stale cross-session leftovers — into the order
+    # (the phantom-product bug, BUG 3).
     try:
         from ai import resolve_selected_product
         selected = await resolve_selected_product(user_id, resolve_shop_id(shop_id))
@@ -155,8 +158,23 @@ async def _resolve_product_interest(user_id: str, user_message: str, shop_id: in
             return selected
     except Exception:
         log.exception("Selected-product resolution failed for %s", user_id)
-    last = await get_last_product_interest(user_id)
-    return last or user_message.strip()
+    return ""
+
+
+async def _resolve_confirmed_product(user_id: str, user_message: str, shop_id: int | None = None) -> str:
+    """Resolve the product the customer named at the confirm step to a catalog
+    label. Falls back to their literal text if search finds nothing — never to
+    stale interest. Keeps the order tied to what the customer actually said."""
+    text = user_message.strip()
+    try:
+        from ai import _product_label
+        from products import get_relevant_products
+        hits = await get_relevant_products(text, shop_id=resolve_shop_id(shop_id))
+        if hits:
+            return _product_label(hits[0])
+    except Exception:
+        log.exception("Confirm-product resolution failed for %s", user_id)
+    return text
 
 
 async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None = None) -> str | None:
@@ -169,6 +187,12 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
                 return None
 
             product_interest = await _resolve_product_interest(user_id, user_message, shop_id)
+            if not product_interest:
+                # Couldn't pin a single confirmed product — ask instead of
+                # guessing (a wrong binding order is worse than one question).
+                await set_order_state(user_id, {"step": "confirm_product"})
+                return "Подскажите, какой именно товар оформляем? Напишите название или модель."
+
             await set_order_state(user_id, {
                 "step": "name",
                 "product_interest": product_interest,
@@ -176,6 +200,13 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
             return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
 
         step = state.get("step")
+        if step == "confirm_product":
+            product_interest = await _resolve_confirmed_product(user_id, user_message, shop_id)
+            state["product_interest"] = product_interest
+            state["step"] = "name"
+            await set_order_state(user_id, state)
+            return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
+
         if step == "name":
             name = user_message.strip()
             if len(name) < 2:
@@ -202,6 +233,8 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
             )
             await notify_shop_owner(order_id, state, channel, external_user_id, shop_id)
             await clear_order_state(user_id)
+            # Stop this finished order's products from bleeding into the next one.
+            await clear_product_context(user_id)
             return "Заказ принят. Менеджер скоро свяжется с вами для подтверждения."
 
         await clear_order_state(user_id)

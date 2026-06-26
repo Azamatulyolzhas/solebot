@@ -1063,6 +1063,22 @@ async def ask_ai(
             except Exception:
                 log.exception("AI product search failed")
 
+        # A selection / continuation phrase ('давай адидас', 'куплю нью баланс',
+        # '1 вариант') routinely fails a fresh catalog search — cross-script brand
+        # names and ordinals don't match the catalog's own words — yet it refers to
+        # the set we JUST showed. Fall back to that shown set so the customer isn't
+        # dead-ended at the moment they commit. The fresh search ran first, so a
+        # genuinely new query is unaffected; this only rescues an otherwise-empty hit.
+        if not matched:
+            prior = await resolve_followup_products(user_id, shop_id)
+            if prior:
+                matched = prior
+                is_followup = True
+                log.info(
+                    "Follow-up fallback shop_id=%s products=%s query=%r",
+                    shop_id, len(matched), user_message[:100],
+                )
+
         product_count = len(matched)
 
         if matched and api_key:
