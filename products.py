@@ -20,6 +20,9 @@ STOP_WORDS = {
     "можно", "подскажи", "скажи", "покажи", "что", "это", "мне", "для", "вы",
     "нет", "как", "про", "по", "на", "из", "у", "вас", "вам", "меня", "этого",
     "занимаюсь", "занимается", "который", "которая", "которые",
+    # Particles/filler. Short ones are dangerous as LIKE substrings — 'не' alone
+    # matched 'коричНЕвый' and pulled brown products into an order (confirm step).
+    "не", "же", "бы", "ещё", "еще", "вот", "ну", "уже", "там", "тут",
 }
 
 # Words that signal "just show me everything" rather than a specific need. A query

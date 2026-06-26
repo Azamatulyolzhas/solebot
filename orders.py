@@ -1,3 +1,4 @@
+import difflib
 import logging
 import re
 
@@ -161,16 +162,40 @@ async def _resolve_product_interest(user_id: str, user_message: str, shop_id: in
     return ""
 
 
+def _hit_matches_query(query: str, product: dict) -> bool:
+    """True only if the product actually corresponds to the customer's words
+    (transliteration + fuzzy aware). Guards the confirm step against binding the
+    order to an unrelated top search hit — 'найк айр макс' must never resolve to a
+    'Куртка Carhartt' just because a filler word matched a substring."""
+    from products import _content_words, _translit_cyr_to_lat
+
+    name = (product.get("name") or "").lower()
+    name_tokens = [t for t in re.findall(r"[a-zа-яё0-9]+", name) if len(t) >= 3]
+    if not name_tokens:
+        return False
+    for w in _content_words(query):
+        if len(w) < 3:
+            continue
+        cand = _translit_cyr_to_lat(w)
+        if not cand:
+            continue
+        if any(cand in tok or tok in cand for tok in name_tokens):
+            return True
+        if difflib.get_close_matches(cand, name_tokens, n=1, cutoff=0.72):
+            return True
+    return False
+
+
 async def _resolve_confirmed_product(user_id: str, user_message: str, shop_id: int | None = None) -> str:
     """Resolve the product the customer named at the confirm step to a catalog
-    label. Falls back to their literal text if search finds nothing — never to
-    stale interest. Keeps the order tied to what the customer actually said."""
+    label. Only trusts a search hit that actually matches what the customer typed;
+    otherwise keeps their literal text — never a stale or unrelated product."""
     text = user_message.strip()
     try:
         from ai import _product_label
         from products import get_relevant_products
         hits = await get_relevant_products(text, shop_id=resolve_shop_id(shop_id))
-        if hits:
+        if hits and _hit_matches_query(text, hits[0]):
             return _product_label(hits[0])
     except Exception:
         log.exception("Confirm-product resolution failed for %s", user_id)
