@@ -103,6 +103,27 @@ class TestBuildProductReply:
         # cheapest (New Balance 36000) is rendered before Adidas (55000)
         assert reply.index("New Balance 574 Grey") < reply.index("Adidas Ultraboost 22 Black")
 
+    def test_repeat_list_false_omits_cards(self, monkeypatch):
+        # Same set as last turn ('это все модели?', 'да') → tone only, no re-dump.
+        self._patch_tone(monkeypatch, "Да, это всё, что есть 🙂 Оформить?")
+        reply, _u, _m = run(
+            ai.build_product_reply(
+                1, {"name": "S"}, PRODUCTS, "это все модели?", "key", repeat_list=False
+            )
+        )
+        assert "Да, это всё" in reply
+        assert "Adidas Ultraboost 22 Black" not in reply  # cards suppressed
+        assert "55000" not in reply
+
+    def test_repeat_list_true_keeps_cards(self, monkeypatch):
+        self._patch_tone(monkeypatch, "Какой размер? 🙂")
+        reply, _u, _m = run(
+            ai.build_product_reply(
+                1, {"name": "S"}, PRODUCTS, "адидас", "key", repeat_list=True
+            )
+        )
+        assert "Adidas Ultraboost 22 Black" in reply  # full list still shown
+
     def test_empty_products_not_found(self):
         reply, _u, mode = run(ai.build_product_reply(1, {"name": "S"}, [], "x", "key"))
         assert mode == "catalog_not_found"

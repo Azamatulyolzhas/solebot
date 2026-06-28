@@ -12,6 +12,22 @@ class TestLooksLikeOrderRequest:
         assert not orders.looks_like_order_request("просто смотрю")
         assert not orders.looks_like_order_request("сколько стоит?")
 
+    def test_natural_buy_verbs_start_order(self):
+        # The production gap: 'оформите …' was ignored and fell through to a catalog
+        # dump. These natural buy phrasings must start the order deterministically.
+        assert orders.looks_like_order_request("оформите стан смив 44 размера")
+        assert orders.looks_like_order_request("беру найк 43")
+        assert orders.looks_like_order_request("возьму")
+        assert orders.looks_like_order_request("закажите адидас")
+
+    def test_negated_buy_verb_is_not_order(self):
+        assert not orders.looks_like_order_request("не беру")
+        assert not orders.looks_like_order_request("не хочу купить")
+
+    def test_buy_verb_not_matched_inside_other_word(self):
+        assert not orders.looks_like_order_request("я сам выберу размер")
+        assert not orders.looks_like_order_request("где купить можно")
+
 
 class TestLooksLikePhone:
     def test_valid_phones(self):
@@ -35,6 +51,37 @@ class TestNormalizeProductInterest:
 
     def test_keeps_non_trigger_text(self):
         assert orders._normalize_product_interest("красные кроссовки") == "красные кроссовки"
+
+    def test_strips_mid_sentence_trigger(self):
+        # The production bug: a trigger NOT at the start stored the whole frustrated
+        # sentence as the product. Now we keep only what follows the trigger.
+        assert (
+            orders._normalize_product_interest("я же сказал хочу купить найк айр форсы")
+            == "найк айр форсы"
+        )
+
+    def test_mid_sentence_trigger_with_no_product_is_empty(self):
+        assert orders._normalize_product_interest("ну ладно давайте хочу купить") == ""
+
+    def test_strips_imperative_trigger(self):
+        assert (
+            orders._normalize_product_interest("оформите стан смив 44 размера")
+            == "стан смив 44 размера"
+        )
+        assert orders._normalize_product_interest("беру найк 43") == "найк 43"
+
+    def test_bare_size_after_trigger_is_empty(self):
+        # 'беру 44' refines the current product (a size), it doesn't name one — so
+        # the flow asks which product rather than binding the order to '44'.
+        assert orders._normalize_product_interest("беру 44") == ""
+
+    def test_trigger_then_only_filler_is_empty(self):
+        assert orders._normalize_product_interest("оформите заказ пожалуйста") == ""
+
+    def test_trigger_then_demonstrative_is_empty(self):
+        # 'оформим этот' → resolve the pick from context, don't store 'этот' as Товар.
+        assert orders.looks_like_order_request("давайте оформим этот")
+        assert orders._normalize_product_interest("давайте оформим этот") == ""
 
 
 class TestOrderStatusValidation:
@@ -84,6 +131,14 @@ class TestConfirmCancel:
         assert orders._is_cancel("нет")
         assert orders._is_cancel("не надо")
         assert orders._is_cancel("отмена")
+        assert orders._is_cancel("Нет, спасибо")  # bare cancel + filler
+
+    def test_correction_is_not_cancel(self):
+        # 'нет' + a change request must NOT hard-cancel the order (it lost the
+        # customer's progress when they only wanted a different size/colour).
+        assert not orders._is_cancel("нет размер 41")
+        assert not orders._is_cancel("нет, другой цвет")
+        assert not orders._is_cancel("нет хочу 42")
 
     def test_ambiguous_is_neither(self):
         assert not orders._is_confirm("привет")

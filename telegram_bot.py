@@ -6,6 +6,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from ai import ask_ai, _ORDER_HINT, _HANDOFF_HINT
+from orders import ORDER_CONFIRM_MARKER
 from cache import clear_chat_context, clear_handoff_state, get_handoff_state, set_handoff_state
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TELEGRAM_WEBHOOK_URL
 from shops import get_all_active_telegram_shops, get_shop_by_id, get_shop_by_webhook_secret
@@ -91,6 +92,10 @@ async def register_shop_bot(shop: dict) -> None:
             InlineKeyboardButton(text="👤 Позвать менеджера", callback_data="call_manager"),
             InlineKeyboardButton(text="🔎 Искать дальше", callback_data="search_more"),
         ]])
+        _CONFIRM_KB = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Подтвердить", callback_data="order_confirm"),
+            InlineKeyboardButton(text="❌ Отменить", callback_data="order_cancel"),
+        ]])
 
         @dp.message()
         async def shop_message(msg: Message):
@@ -108,6 +113,8 @@ async def register_shop_bot(shop: dict) -> None:
             elif _ORDER_HINT in reply:
                 text = reply.replace(_ORDER_HINT, "").rstrip()
                 await msg.answer(text, reply_markup=_BUY_KB)
+            elif ORDER_CONFIRM_MARKER in reply:
+                await msg.answer(reply, reply_markup=_CONFIRM_KB)
             else:
                 await msg.answer(reply)
 
@@ -164,6 +171,19 @@ async def register_shop_bot(shop: dict) -> None:
             order_reply = await handle_order_flow(user_id, "хочу купить", shop_id=shop_id)
             if order_reply:
                 await cb.message.answer(order_reply)
+
+        @dp.callback_query(F.data.in_({"order_confirm", "order_cancel"}))
+        async def shop_order_confirm_callback(cb: CallbackQuery):
+            from orders import handle_order_flow
+
+            user_id = f"tg_{shop_id}_{cb.from_user.id}"
+            await cb.answer()
+            answer = "да" if cb.data == "order_confirm" else "нет"
+            order_reply = await handle_order_flow(user_id, answer, shop_id=shop_id)
+            await cb.message.answer(
+                order_reply
+                or "Этот заказ уже обработан. Напишите «хочу купить», чтобы оформить новый 🙂"
+            )
 
         fresh = get_shop_by_id(shop_id) or shop
         shop_bots[secret] = (bot, dp, fresh)

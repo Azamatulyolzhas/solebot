@@ -159,3 +159,89 @@ class TestApplyAttrFilters:
         # A size nobody has must not wipe the results.
         out = products._apply_attr_filters("49", [_BLACK, _BLACK43])
         assert out == [_BLACK, _BLACK43]
+
+
+class TestFormatCatalogReply:
+    """The catalog stores each size as its own SKU; the reply must not print the
+    same model several times (the duplicate-listing bug from the live chat)."""
+
+    def test_collapses_size_variants_to_one_card(self):
+        items = [
+            {"name": "Nike Air Max 90 White", "price": 42000, "quantity": 2,
+             "attributes": {"size": 42}},
+            {"name": "Nike Air Max 90 White", "price": 42000, "quantity": 1,
+             "attributes": {"size": 44}},
+            {"name": "Nike Air Max 90 White", "price": 42000, "quantity": 3,
+             "attributes": {"size": 43}},
+        ]
+        out = products.format_catalog_reply(items)
+        assert out.count("Nike Air Max 90 White") == 1
+        assert "размеры: 42, 43, 44" in out  # gathered and sorted
+
+    def test_distinct_models_stay_separate(self):
+        items = [
+            {"name": "Nike Air Force 1 Low", "price": 48000, "quantity": 1,
+             "attributes": {"size": 42}},
+            {"name": "Nike Air Force 1 Low", "price": 48000, "quantity": 1,
+             "attributes": {"size": 43}},
+            {"name": "Nike Air Max 90 Black", "price": 42000, "quantity": 1,
+             "attributes": {"size": 42}},
+        ]
+        out = products.format_catalog_reply(items)
+        assert out.count("Nike Air Force 1 Low") == 1
+        assert out.count("Nike Air Max 90 Black") == 1
+        assert out.count("•") == 2  # two distinct models, two lines
+
+    def test_single_model_multi_size_uses_in_catalog_phrasing(self):
+        items = [
+            {"name": "Vans Old Skool Black", "price": 30000, "quantity": 1,
+             "attributes": {"size": 42}},
+            {"name": "Vans Old Skool Black", "price": 30000, "quantity": 1,
+             "attributes": {"size": 43}},
+        ]
+        out = products.format_catalog_reply(items)
+        assert out.startswith("В каталоге:")
+        assert "размеры: 42, 43" in out
+
+    def test_empty_returns_prompt(self):
+        assert "не вижу" in products.format_catalog_reply([])
+
+
+class TestFindUnavailableModel:
+    """Asked for a specific model that's sold out → name it honestly instead of
+    silently substituting a different in-stock model."""
+
+    def test_named_oos_model_not_in_shown(self, monkeypatch):
+        shown = [{"name": "Adidas Ultraboost 22 Black", "quantity": 3}]
+        monkeypatch.setattr(
+            products, "search_products_db",
+            lambda *a, **k: [{"name": "Adidas Forum Low Black", "quantity": 0}],
+        )
+        out = products.find_unavailable_model("есть адидас форум черного цвета", 1, shown)
+        assert out == "Adidas Forum Low Black"
+
+    def test_no_distinctive_term_skips_db(self, monkeypatch):
+        # Brand + colour only, nothing absent from shown → no DB hit, no false flag.
+        shown = [{"name": "Adidas Ultraboost 22 Black", "quantity": 3}]
+        called = {"hit": False}
+
+        def fake(*a, **k):
+            called["hit"] = True
+            return []
+
+        monkeypatch.setattr(products, "search_products_db", fake)
+        assert products.find_unavailable_model("адидас чёрный", 1, shown) is None
+        assert not called["hit"]
+
+    def test_model_in_stock_not_flagged(self, monkeypatch):
+        shown = [{"name": "Adidas Forum Low Black", "quantity": 2}]
+        monkeypatch.setattr(products, "search_products_db", lambda *a, **k: [])
+        assert products.find_unavailable_model("адидас форум", 1, shown) is None
+
+    def test_oos_candidate_must_match_named_term(self, monkeypatch):
+        shown = [{"name": "Adidas Ultraboost 22 Black", "quantity": 3}]
+        monkeypatch.setattr(
+            products, "search_products_db",
+            lambda *a, **k: [{"name": "Nike Air Max 90", "quantity": 0}],
+        )
+        assert products.find_unavailable_model("есть адидас форум", 1, shown) is None

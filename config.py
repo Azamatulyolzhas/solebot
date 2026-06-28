@@ -28,6 +28,57 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
 # ever calling the classifier — see ai.py.)
 GROQ_CLASSIFIER_MODEL = os.getenv("GROQ_CLASSIFIER_MODEL", GROQ_MODEL).strip()
 
+# LLM "brain": one structured call per turn that sees the whole catalog + history
+# and decides what to show / answer / order, instead of the keyword routing chain.
+# Off by default (the deterministic chain stays the fallback and keeps tests valid);
+# turn on in prod with AI_BRAIN=1. Facts/orders stay deterministic, so a higher
+# temperature only makes the wording livelier, not the facts.
+AI_BRAIN = os.getenv("AI_BRAIN", "0").strip().lower() not in ("", "0", "false", "no")
+try:
+    GROQ_BRAIN_TEMPERATURE = float(os.getenv("GROQ_BRAIN_TEMPERATURE", "0.5"))
+except ValueError:
+    GROQ_BRAIN_TEMPERATURE = 0.5
+
+# Cap on how many catalog items get serialized into a single LLM prompt (the brain
+# and the semantic search). Keeps prompt size — and therefore Groq token cost and
+# 429 pressure — BOUNDED as the catalog grows: above this count we pre-filter to
+# query-relevant candidates with the free keyword search instead of sending the
+# whole catalog. Set high enough to be a no-op for small catalogs.
+LLM_CATALOG_MAX_ITEMS = int(os.getenv("LLM_CATALOG_MAX_ITEMS", "120"))
+# Max seconds we'll honor a Groq 429 `Retry-After` for a single in-line retry. A
+# longer wait means the per-minute bucket is blown — we give up to the
+# deterministic catalog fallback rather than hold the customer's reply hostage.
+try:
+    GROQ_RETRY_MAX_WAIT = float(os.getenv("GROQ_RETRY_MAX_WAIT", "2.0"))
+except ValueError:
+    GROQ_RETRY_MAX_WAIT = 2.0
+
+# ── Embeddings / RAG semantic search ────────────────────────────────────────────
+# A hosted, OpenAI-compatible /v1/embeddings endpoint (default OpenAI). Vector
+# search activates only when USE_POSTGRES is on AND EMBEDDING_API_KEY is set —
+# otherwise the deterministic keyword/translit search stays the path, so dev and
+# tests are unaffected. Keep EMBEDDING_DIM at 384 to match the existing
+# pgvector(384) column (schema.py) — no DB migration needed. text-embedding-3-*
+# honour the `dimensions` request param, so 384 output is a config flag, not a
+# different model. Point BASE_URL/MODEL at Jina/Gemini/etc. if preferred.
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "").strip()
+EMBEDDING_BASE_URL = os.getenv(
+    "EMBEDDING_BASE_URL", "https://api.openai.com/v1"
+).strip().rstrip("/")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small").strip()
+try:
+    EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
+except ValueError:
+    EMBEDDING_DIM = 384
+# How many model-families RAG retrieves into the LLM-brain prompt per turn, in
+# place of dumping the whole (bounded) catalog. This is the main token saver that
+# eases Groq 429 pressure. Browse queries ('что есть') and catalogs at/under this
+# size keep the old full-context behaviour.
+try:
+    BRAIN_RETRIEVAL_TOPK = int(os.getenv("BRAIN_RETRIEVAL_TOPK", "20"))
+except ValueError:
+    BRAIN_RETRIEVAL_TOPK = 20
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
 # Optional secret echoed back by Telegram in X-Telegram-Bot-Api-Secret-Token

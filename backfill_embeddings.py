@@ -16,7 +16,7 @@ BATCH = 100
 
 def backfill() -> None:
     if not is_available():
-        log.error("Vector search not available (need PostgreSQL + pgvector + sentence-transformers)")
+        log.error("Vector search not available (need USE_POSTGRES + pgvector + EMBEDDING_API_KEY)")
         return
 
     ensure_app_tables()

@@ -3,7 +3,13 @@
 These are the highest-bug-density functions in the hot path: intent detection
 and the anti-hallucination reply validator. No DB / network involved.
 """
+import asyncio
+
 import ai
+
+
+def _run(coro):
+    return asyncio.run(coro)
 
 
 # ── is_greeting ────────────────────────────────────────────────────────────────
@@ -26,6 +32,15 @@ class TestIsGreeting:
         assert not ai.is_greeting("хочу купить найк")
         assert not ai.is_greeting("есть ли кроссовки 42 размера")
 
+    def test_single_word_typo_is_greeting(self):
+        # 'пивет'/'привт' must NOT fall through to the OFF_TOPIC classifier.
+        assert ai.is_greeting("пивет")
+        assert ai.is_greeting("привт")
+
+    def test_product_word_is_not_a_greeting(self):
+        assert not ai.is_greeting("найки")
+        assert not ai.is_greeting("кроссовки")
+
     def test_empty_or_too_long(self):
         assert not ai.is_greeting("")
         assert not ai.is_greeting("   ")
@@ -45,8 +60,32 @@ class TestIsRejection:
         assert not ai.is_rejection("да, хочу")
         assert not ai.is_rejection("покажите красные кроссовки")
 
+    def test_no_word_inside_a_request_is_not_rejection(self):
+        # 'нет' starts a request for OTHER items — this is what made the bot reply
+        # the nonsensical 'Хорошо, понял…' and loop.
+        assert not ai.is_rejection("нет другие модели кроме этих")
+        assert not ai.is_rejection("нет, покажи ещё варианты")
+
+    def test_yes_no_question_is_not_rejection(self):
+        # A yes/no question wants an answer, not a goodbye.
+        assert not ai.is_rejection("так есть или нет?")
+        assert not ai.is_rejection("есть или нет")
+
     def test_empty(self):
         assert not ai.is_rejection("")
+
+
+class TestWantsMoreOptions:
+    def test_detects_other_more_besides(self):
+        assert ai._wants_more_options("есть другие модели")
+        assert ai._wants_more_options("дай мне модели найки другиеее")
+        assert ai._wants_more_options("есть что-то ещё?")
+        assert ai._wants_more_options("кроме айр макс есть?")
+
+    def test_plain_query_is_not_more(self):
+        assert not ai._wants_more_options("кроссы от найк")
+        assert not ai._wants_more_options("для бега")
+        assert not ai._wants_more_options("давай айр макс черный")
 
 
 # ── is_followup_question ───────────────────────────────────────────────────────
@@ -166,6 +205,12 @@ class TestAppendOrderHint:
         once = ai._append_order_hint("Есть Nike Air.")
         twice = ai._append_order_hint(once)
         assert twice.lower().count("хочу купить") == 1
+
+    def test_appends_even_when_tone_has_trigger_phrase(self):
+        # The buy button must appear even when the tone already says 'оформить
+        # заказ' — previously that suppressed the sentinel and killed the button.
+        out = ai._append_order_hint("Хотите оформить заказ на эту пару?")
+        assert ai._ORDER_HINT in out
 
 
 # ── _trim_history ──────────────────────────────────────────────────────────────
@@ -309,6 +354,187 @@ class TestIsAffirmation:
         assert not ai.is_affirmation("")
 
 
+class TestIsOrderYes:
+    def test_pure_yes_words(self):
+        assert ai._is_order_yes("да")
+        assert ai._is_order_yes("давай")
+        assert ai._is_order_yes("оформляй")
+
+    def test_number_is_not_order_yes(self):
+        # A size must stay a size selection, not start the order.
+        assert not ai._is_order_yes("43")
+        assert not ai._is_order_yes("давай 43")
+
+    def test_other_is_not_order_yes(self):
+        assert not ai._is_order_yes("покажи ещё")
+        assert not ai._is_order_yes("")
+
+
+class TestRefineWithinShown:
+    _ADIDAS = [
+        {"id": 1, "name": "Adidas Stan Smith", "attributes": {"size": 42}},
+        {"id": 2, "name": "Adidas Stan Smith", "attributes": {"size": 43}},
+        {"id": 3, "name": "Adidas Stan Smith", "attributes": {"size": 44}},
+        {"id": 4, "name": "Adidas Ultraboost 22 Black", "attributes": {"size": 42}},
+        {"id": 5, "name": "Adidas Ultraboost 22 Black", "attributes": {"size": 43}},
+    ]
+    _NIKE = [
+        {"id": 10, "name": "Nike Air Max 90 Black", "attributes": {"size": 42}},
+        {"id": 11, "name": "Nike Air Force 1 Low", "attributes": {"size": 43}},
+    ]
+
+    def test_names_shown_model_narrows_to_family(self):
+        # 'давайте стан смив' → Stan Smith only (no unrelated Converse/Ultraboost).
+        out = ai._refine_within_shown("хорошо давайте тогда стан смив", self._ADIDAS)
+        assert out is not None
+        assert {p["name"] for p in out} == {"Adidas Stan Smith"}
+
+    def test_model_plus_size_narrows_to_one_row(self):
+        out = ai._refine_within_shown("стан смит 43", self._ADIDAS)
+        assert [p["id"] for p in out] == [2]
+
+    def test_bare_size_narrows_size(self):
+        out = ai._refine_within_shown("43", self._ADIDAS)
+        assert out and all(str((p["attributes"]).get("size")) == "43" for p in out)
+
+    def test_order_word_plus_size_is_refinement(self):
+        out = ai._refine_within_shown("оформляем 43 размер", self._ADIDAS)
+        assert out and all(str((p["attributes"]).get("size")) == "43" for p in out)
+
+    def test_new_brand_is_not_refinement(self):
+        # 'адидас 43' / 'давайте адидас' while Nike is shown → new search, not refine.
+        assert ai._refine_within_shown("адидас 43", self._NIKE) is None
+        assert ai._refine_within_shown("или давайте адидас", self._NIKE) is None
+
+    def test_select_family_ambiguous_returns_empty(self):
+        assert ai._select_family("адидас", self._ADIDAS) == []
+
+    def test_family_sizes_sorted(self):
+        assert ai._family_sizes(self._ADIDAS[:3]) == ["42", "43", "44"]
+
+
+# ── LLM brain ────────────────────────────────────────────────────────────────────
+
+class TestBrainHelpers:
+    def test_parse_plain_json(self):
+        d = ai._parse_brain_json('{"reply":"hi","show":[1,2],"order":{"ready":false}}')
+        assert d["reply"] == "hi" and d["show"] == [1, 2]
+
+    def test_parse_fenced_and_prose_wrapped(self):
+        assert ai._parse_brain_json('```json\n{"reply":"hi","show":[]}\n```') == {"reply": "hi", "show": []}
+        assert ai._parse_brain_json('Конечно! {"reply":"ok","show":[3]} вот')["show"] == [3]
+
+    def test_parse_garbage_is_none(self):
+        assert ai._parse_brain_json("просто текст без json") is None
+        assert ai._parse_brain_json("") is None
+
+    def test_coerce_int_list(self):
+        assert ai._coerce_int_list([1, "2", 2, "x"]) == [1, 2]
+        assert ai._coerce_int_list("3") == [3]
+        assert ai._coerce_int_list(None) == []
+
+    def test_catalog_text_format(self):
+        models = [{"idx": 1, "name": "Vans Old Skool Black", "price": 22000,
+                   "sizes": ["42", "43"], "colors": ["чёрный"], "rows": []}]
+        out = ai._brain_catalog_text(models)
+        assert out.startswith("[1] Vans Old Skool Black — 22000₸")
+        assert "размеры: 42,43" in out and "цвет: чёрный" in out
+
+    def test_reply_safe_rejects_invented_price_and_discount(self):
+        products = [{"name": "Vans Old Skool Black", "price": 22000}]
+        assert ai._brain_reply_safe("Есть Vans за 22000₸", products)
+        assert not ai._brain_reply_safe("Только сегодня скидка 19999₸!", products)
+
+    def test_reply_safe_allows_text_without_numbers(self):
+        assert ai._brain_reply_safe("Есть чёрные и белые, какой берёте?", [{"name": "x", "price": 1}])
+
+    def test_row_for_size(self):
+        rows = [{"attributes": {"size": 42}}, {"attributes": {"size": 43}}]
+        assert ai._row_for_size(rows, "43") is rows[1]
+        assert ai._row_for_size(rows, "99") is rows[0]  # no match → first
+
+
+class TestBrainReply:
+    _MODELS = [{
+        "idx": 1, "name": "Vans Old Skool Black", "price": 22000,
+        "sizes": ["42", "43"], "colors": ["чёрный"],
+        "rows": [
+            {"id": 1, "name": "Vans Old Skool Black", "price": 22000, "quantity": 5, "attributes": {"size": 42}},
+            {"id": 2, "name": "Vans Old Skool Black", "price": 22000, "quantity": 3, "attributes": {"size": 43}},
+        ],
+    }]
+
+    def _wire(self, monkeypatch, groq_json):
+        monkeypatch.setattr(ai, "_brain_models", lambda sid: self._MODELS)
+        monkeypatch.setattr(ai, "resolve_groq_api_key", lambda sid: "key")
+
+        async def fake_groq(*a, **k):
+            return groq_json, {}
+        monkeypatch.setattr(ai, "_groq_messages", fake_groq)
+
+        async def noop(*a, **k):
+            return None
+        for fn in ("set_last_product_interest", "set_last_shown_products",
+                   "clear_miss_count", "save_ai_result", "set_order_state"):
+            monkeypatch.setattr(ai, fn, noop, raising=False)
+
+    def test_show_path_renders_real_cards(self, monkeypatch):
+        self._wire(monkeypatch, '{"reply":"Отличные кеды!","show":[1],"order":{"ready":false}}')
+        out = _run(ai._brain_reply(1, {"name": "vardly"}, "u", "ванс", [], [], None, "tg", 0.0))
+        assert "Vans Old Skool Black" in out and "22000" in out
+        assert "Отличные кеды" in out
+
+    def test_order_ready_with_size_starts_order(self, monkeypatch):
+        captured = {}
+
+        async def cap_state(uid, state):
+            captured["state"] = state
+        self._wire(monkeypatch, '{"reply":"","show":[],"order":{"ready":true,"id":1,"size":"43"}}')
+        monkeypatch.setattr("cache.set_order_state", cap_state, raising=False)
+        out = _run(ai._brain_reply(1, {"name": "vardly"}, "u", "беру ванс 43", [], [], None, "tg", 0.0))
+        assert "ваше имя" in out.lower()
+        assert captured["state"]["product_interest"] == "Vans Old Skool Black (43)"
+
+    def test_bad_json_falls_back(self, monkeypatch):
+        self._wire(monkeypatch, "это не json")
+        assert _run(ai._brain_reply(1, {"name": "vardly"}, "u", "привет", [], [], None, "tg", 0.0)) is None
+
+    def test_rate_limited_returns_sentinel(self, monkeypatch):
+        # A 429 must be distinguishable from a normal 'declined' (None) so the caller
+        # can degrade deterministically instead of cascading into more Groq calls.
+        monkeypatch.setattr(ai, "_brain_models", lambda sid: self._MODELS)
+        monkeypatch.setattr(ai, "resolve_groq_api_key", lambda sid: "key")
+
+        async def fake_groq(*a, **k):
+            return None, {"error": "rate_limit"}
+        monkeypatch.setattr(ai, "_groq_messages", fake_groq)
+        out = _run(ai._brain_reply(1, {"name": "vardly"}, "u", "ванс", [], [], None, "tg", 0.0))
+        assert out is ai._BRAIN_RATE_LIMITED
+
+
+# ── _bound_catalog_for_llm (prompt size stays bounded as the catalog grows) ──────
+
+class TestBoundCatalogForLLM:
+    def test_noop_when_under_cap(self):
+        items = [{"name": f"P{i}", "price": i} for i in range(5)]
+        assert ai._bound_catalog_for_llm(items, "что есть", cap=10) is items
+
+    def test_keeps_query_relevant_first(self):
+        items = [{"name": "Adidas Stan Smith", "price": 30000}]
+        items += [{"name": f"Filler {i}", "price": 1000 + i} for i in range(20)]
+        out = ai._bound_catalog_for_llm(items, "адидас стан смит", cap=5)
+        assert len(out) == 5
+        # Cyrillic query bridges to the Latin catalog name → relevant row leads.
+        assert out[0]["name"] == "Adidas Stan Smith"
+
+    def test_pads_with_cheapest_when_no_match(self):
+        items = [{"name": f"P{i}", "price": 100 - i} for i in range(20)]
+        out = ai._bound_catalog_for_llm(items, "zzz nonsense", cap=3)
+        assert len(out) == 3
+        prices = [p["price"] for p in out]
+        assert prices == sorted(prices)  # cheapest-first padding
+
+
 # ── _interest_names (no 'Nike, Nike' in orders) ─────────────────────────────────
 
 class TestInterestNames:
@@ -332,3 +558,60 @@ class TestProductLabel:
 
     def test_plain_name_without_attrs(self):
         assert ai._product_label({"name": "Adidas UB22 Black"}) == "Adidas UB22 Black"
+
+
+# ── _looks_like_product_query (OFF_TOPIC override guard) ─────────────────────────
+
+class TestLooksLikeProductQuery:
+    _CATALOG = [
+        {"name": "Adidas Stan Smith", "category": "Кроссовки"},
+        {"name": "Nike Air Max 90 Black", "category": "Кроссовки"},
+    ]
+
+    def _patch(self, monkeypatch):
+        monkeypatch.setattr(ai, "get_all_catalog_products", lambda sid: self._CATALOG)
+
+    def test_product_class_word_matches_category(self, monkeypatch):
+        # 'нью баланс' (brand absent from catalog, 'баланс' looks financial) but
+        # 'кроссы'/'кроссовки' overlaps the catalog category → still shopping.
+        self._patch(monkeypatch)
+        assert ai._looks_like_product_query("есть кроссы от нью баланс", 1)
+        assert ai._looks_like_product_query("нью баланс кроссовки", 1)
+
+    def test_catalog_brand_word_matches_translit(self, monkeypatch):
+        self._patch(monkeypatch)
+        assert ai._looks_like_product_query("адидас есть?", 1)  # адидас → adidas
+
+    def test_buy_intent_phrase_short_circuits(self):
+        # No catalog read needed — a buy-intent phrase is enough on its own.
+        assert ai._looks_like_product_query("сколько стоит", 1)
+
+    def test_true_offtopic_is_not_product(self, monkeypatch):
+        self._patch(monkeypatch)
+        assert not ai._looks_like_product_query("какая сегодня погода", 1)
+        assert not ai._looks_like_product_query("да ты заебал", 1)
+
+
+# ── _is_meta_or_feedback (don't search on comments/complaints) ───────────────────
+
+class TestIsMetaOrFeedback:
+    def test_bot_directed_complaint(self):
+        # A complaint that contains a brand must NOT be read as 'show me that brand'.
+        assert ai._is_meta_or_feedback("почему ты показываешь адидас")
+        assert ai._is_meta_or_feedback("что ты делаешь")
+        assert ai._is_meta_or_feedback("ты опять одно и то же повторяешь")
+
+    def test_assortment_comment(self):
+        assert ai._is_meta_or_feedback("у вас только два можеля")
+        assert ai._is_meta_or_feedback("это все модели")
+        assert ai._is_meta_or_feedback("так мало вариантов")
+
+    def test_filter_is_not_meta(self):
+        # 'только' + a colour/size is a FILTER, not a comment.
+        assert not ai._is_meta_or_feedback("только синие")
+        assert not ai._is_meta_or_feedback("только 41 размер")
+
+    def test_real_product_request_is_not_meta(self):
+        assert not ai._is_meta_or_feedback("дай мне кроссы для бега")
+        assert not ai._is_meta_or_feedback("мне нужна куртка")
+        assert not ai._is_meta_or_feedback("адидас")

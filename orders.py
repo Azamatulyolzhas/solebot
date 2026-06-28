@@ -16,17 +16,44 @@ from shops import resolve_shop_id
 
 log = logging.getLogger(__name__)
 
-ORDER_TRIGGERS = (
-    "хочу купить",
-    "оформить заказ",
-    "хочу заказать",
+# Multi-word buy-intent phrases — distinctive enough for a plain substring match.
+ORDER_TRIGGER_PHRASES = (
+    "хочу купить", "хочу заказать", "оформить заказ", "оформи заказ",
+    "оформите заказ", "оформляем заказ", "оформить покупку",
+    "готов купить", "готова купить",
+)
+# Single buy-intent verbs — matched on WORD BOUNDARIES so 'беру' can't fire inside
+# 'выберу'. Imperatives + committal present tense. Deliberately NOT bare 'купить'
+# (too common in questions like 'где купить?'); 'хочу купить' covers the real case.
+ORDER_TRIGGER_WORDS = frozenset({
+    "оформи", "оформите", "оформить", "оформим", "оформляй", "оформляйте",
+    "оформляем", "оформляю", "закажи", "закажите", "заказать", "заказываю",
+    "беру", "возьму", "куплю", "покупаю",
+})
+# Demonstratives ('оформим ЭТОТ') point at the last-shown product — they are not a
+# product NAME, so after the trigger they count as filler and the flow resolves the
+# pick from context instead of storing 'этот' as the order's Товар.
+_DEMONSTRATIVES = frozenset({
+    "это", "этот", "эту", "эти", "этого", "тот", "ту", "те", "его", "её", "ее",
+})
+# Tokens that NEGATE a nearby buy verb ('не беру', 'не хочу купить') → refusal, not
+# an order. Checked within the 2 tokens before the trigger.
+_ORDER_NEGATORS = frozenset({"не", "ни", "нет"})
+
+# Back-compat: callers importing ORDER_TRIGGERS still get the core phrases.
+ORDER_TRIGGERS = ORDER_TRIGGER_PHRASES
+GENERIC_ORDER_PHRASES = set(ORDER_TRIGGER_PHRASES)
+
+# Strips the trigger from the product text. Phrases first so 'оформить заказ' wins
+# over the bare 'оформить' word and we keep only what follows.
+_ORDER_TRIGGER_RE = re.compile(
+    r"(?:" + "|".join(re.escape(p) for p in ORDER_TRIGGER_PHRASES)
+    + r"|\b(?:" + "|".join(re.escape(w) for w in ORDER_TRIGGER_WORDS) + r")\b)"
 )
 
-GENERIC_ORDER_PHRASES = {
-    "хочу купить",
-    "оформить заказ",
-    "хочу заказать",
-}
+# Stable marker in the confirm-step summary. telegram_bot.py detects it to attach
+# the ✅/❌ confirm buttons; on other channels the «да»/«нет» text path still works.
+ORDER_CONFIRM_MARKER = "Всё верно?"
 
 
 def create_order(
@@ -120,8 +147,28 @@ def update_order_status(order_id: int, status: str, shop_id: int | None = None) 
 
 
 def looks_like_order_request(message: str) -> bool:
-    text = message.lower().strip()
-    return any(trigger in text for trigger in ORDER_TRIGGERS)
+    """True when the customer is clearly asking to BUY — a buy phrase ('хочу купить')
+    or a buy verb ('оформите', 'беру', 'возьму', 'закажите'). Word-boundary matched
+    so 'беру' ≠ 'выберу', and skipped when negated ('не беру', 'не хочу купить'), so
+    a refusal never starts an order. Runs before any LLM, so the buy moment works
+    even when Groq is rate-limited."""
+    text = (message or "").lower().strip()
+    if not text:
+        return False
+    tokens = re.findall(r"[а-яёa-z0-9]+", text)
+
+    def _negated_at(i: int) -> bool:
+        return any(tokens[j] in _ORDER_NEGATORS for j in range(max(0, i - 2), i))
+
+    for i, tok in enumerate(tokens):
+        if tok in ORDER_TRIGGER_WORDS and not _negated_at(i):
+            return True
+    for phrase in ORDER_TRIGGER_PHRASES:
+        if phrase in text:
+            first = phrase.split()[0]
+            if first in tokens and not _negated_at(tokens.index(first)):
+                return True
+    return False
 
 
 def looks_like_phone(message: str) -> bool:
@@ -164,6 +211,9 @@ _CANCEL_WORDS = frozenset({
     "стоп", "cancel", "no", "nope",
 })
 _CANCEL_PHRASES = ("не верно", "не правильно", "не надо", "не нужно", "не так")
+# Filler that may sit beside a bare cancel ('нет спасибо') without making it a
+# correction.
+_CANCEL_FILLER = frozenset({"спасибо", "пожалуйста", "ну", "и", "а"})
 
 
 def _norm_tokens(message: str) -> list[str]:
@@ -175,10 +225,21 @@ def _is_confirm(message: str) -> bool:
 
 
 def _is_cancel(message: str) -> bool:
+    """True only for a *bare* cancel ('нет', 'отмена', 'нет, спасибо').
+
+    A 'нет' that carries a correction ('нет размер 41', 'нет, другой цвет') is NOT
+    a cancel — the customer wants to change something, and hard-cancelling the order
+    on it loses their progress. Mirrors the chat-level is_rejection discipline."""
     text = re.sub(r"[^\w\s]", " ", (message or "").lower())
-    if any(w in _CANCEL_WORDS for w in text.split()):
+    if any(p in text for p in _CANCEL_PHRASES):
         return True
-    return any(p in text for p in _CANCEL_PHRASES)
+    words = text.split()
+    if not any(w in _CANCEL_WORDS for w in words):
+        return False
+    # Bare cancel only: nothing beyond cancel words + filler. Extra content means
+    # it's a correction, not a cancel.
+    extra = [w for w in words if w not in _CANCEL_WORDS and w not in _CANCEL_FILLER]
+    return not extra
 
 
 def _order_summary(state: dict) -> str:
@@ -187,22 +248,38 @@ def _order_summary(state: dict) -> str:
         f"• Товар: {state.get('product_interest') or '—'}\n"
         f"• Имя: {state.get('name') or '—'}\n"
         f"• Телефон: {state.get('phone') or '—'}\n\n"
-        "Всё верно? Напишите «да» для подтверждения или «нет», чтобы отменить."
+        f"{ORDER_CONFIRM_MARKER} Напишите «да» для подтверждения или «нет», чтобы отменить."
     )
+
+
+def _is_only_order_filler(text: str) -> bool:
+    """True when what's left after stripping the trigger names no real product —
+    only buy-filler ('оформите заказ пожалуйста') or a bare size ('беру 44'). Then
+    the caller asks WHICH product instead of binding the order to junk. A bare size
+    counts as filler because it refines the current product, it doesn't name one."""
+    from products import STOP_WORDS
+
+    words = re.findall(r"[а-яёa-z]+", text.lower())  # letters only — a size is digits
+    content = [
+        w for w in words
+        if w not in STOP_WORDS and w not in _ORDER_FILLER
+        and w not in ORDER_TRIGGER_WORDS and w not in _DEMONSTRATIVES
+    ]
+    return not content
 
 
 def _normalize_product_interest(message: str) -> str:
     text = message.strip()
-    lowered = text.lower().rstrip(".!")
-    if lowered in GENERIC_ORDER_PHRASES:
+    # Keep only what FOLLOWS the LAST buy trigger, wherever it sits: a mid-sentence
+    # trigger ('я же сказал хочу купить найк айр форсы' → 'найк айр форсы') must
+    # capture the product, not store the whole sentence in the order's Товар field.
+    matches = list(_ORDER_TRIGGER_RE.finditer(text.lower()))
+    if not matches:
+        return text
+    rest = text[matches[-1].end():].strip(" .,!-—")
+    if not rest or _is_only_order_filler(rest):
         return ""
-    for phrase in GENERIC_ORDER_PHRASES:
-        if lowered == phrase or lowered.startswith(phrase + " "):
-            rest = text[len(phrase):].strip(" .,!-—")
-            if rest and rest.lower() not in GENERIC_ORDER_PHRASES:
-                return rest
-            return ""
-    return text
+    return rest
 
 
 async def _resolve_product_interest(user_id: str, user_message: str, shop_id: int | None = None) -> str:
@@ -360,7 +437,10 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
                 await clear_product_context(user_id)
                 return "Отменил оформление. Напишите «хочу купить», когда будете готовы 🙂"
             if not _is_confirm(user_message):
-                return "Напишите «да», если всё верно, или «нет», чтобы отменить."
+                return (
+                    "Напишите «да» для подтверждения. Если нужно что-то изменить "
+                    "(размер, товар, имя или телефон) — напишите «нет», и оформим заново 🙂"
+                )
 
             order_id = create_order(
                 channel,

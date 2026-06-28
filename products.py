@@ -883,24 +883,144 @@ def _stock_label(qty: int) -> str:
     return "в наличии" if qty > 0 else "нет в наличии"
 
 
+def _variant_size(item: dict) -> str:
+    """Size value for a product row, if the catalog records one ('размер'/'size')."""
+    attrs = item.get("attributes") or {}
+    for key in ("размер", "size", "Размер", "Size"):
+        val = attrs.get(key)
+        if val not in (None, ""):
+            return str(val).strip()
+    return ""
+
+
+def _group_variants(items: list[dict]) -> list[dict]:
+    """Collapse rows that differ only by size into one card per (name, price).
+
+    The catalog stores each size as its own SKU, so a model with three sizes would
+    otherwise print as three identical lines and read like a broken bot. Sizes are
+    gathered so the customer still sees which exist. Display-only — callers keep the
+    raw per-size rows for the order flow."""
+    groups: list[dict] = []
+    index: dict[tuple, dict] = {}
+    for item in items:
+        name = (item.get("name") or "—").strip()
+        price = int(item.get("price") or 0)
+        key = (name.lower(), price)
+        g = index.get(key)
+        if g is None:
+            g = {"name": name, "price": price, "qty": 0, "sizes": []}
+            index[key] = g
+            groups.append(g)
+        g["qty"] += int(item.get("quantity") or 0)
+        size = _variant_size(item)
+        if size and size not in g["sizes"]:
+            g["sizes"].append(size)
+    return groups
+
+
+def _sizes_note(sizes: list[str]) -> str:
+    if not sizes:
+        return ""
+    try:  # numeric sizes read better sorted (42, 43, 44) than in match order
+        ordered = sorted(sizes, key=lambda s: float(str(s).replace(",", ".")))
+    except ValueError:
+        ordered = sizes
+    label = "размер" if len(ordered) == 1 else "размеры"
+    return f" ({label}: " + ", ".join(str(s) for s in ordered) + ")"
+
+
 def format_catalog_reply(items: list[dict]) -> str:
-    """Human reply built only from catalog rows — no LLM."""
+    """Human reply built only from catalog rows — no LLM. Size variants that share a
+    name+price are collapsed to ONE line, so the list never prints the same model
+    several times over."""
     if not items:
         return "Сейчас не вижу такого товара на складе. Напишите название или категорию — проверю по каталогу."
-    if len(items) == 1:
-        item = items[0]
-        qty = int(item.get("quantity") or 0)
-        desc = (item.get("description") or "").strip()
-        extra = f" {desc}" if desc else ""
+    groups = _group_variants(items)
+
+    if len(groups) == 1:
+        g = groups[0]
+        # A single physical row keeps its description; a collapsed multi-size group
+        # shows the available sizes instead.
+        if len(items) == 1:
+            item = items[0]
+            qty = int(item.get("quantity") or 0)
+            desc = (item.get("description") or "").strip()
+            extra = f" {desc}" if desc else ""
+            return f"В каталоге: {item['name']}{extra} — {item['price']}₸, {_stock_label(qty)}."
         return (
-            f"В каталоге: {item['name']}{extra} — {item['price']}₸, {_stock_label(qty)}."
+            f"В каталоге: {g['name']}{_sizes_note(g['sizes'])} — "
+            f"{g['price']}₸, {_stock_label(g['qty'])}."
         )
+
     lines = []
-    for item in items[:5]:
-        qty = int(item.get("quantity") or 0)
-        lines.append(f"• {item['name']} — {item['price']}₸, {_stock_label(qty)}")
-    suffix = "" if len(items) <= 5 else f" (и ещё {len(items) - 5})"
+    for g in groups[:5]:
+        lines.append(
+            f"• {g['name']}{_sizes_note(g['sizes'])} — {g['price']}₸, {_stock_label(g['qty'])}"
+        )
+    suffix = "" if len(groups) <= 5 else f" (и ещё {len(groups) - 5})"
     return "По каталогу нашёл:\n" + "\n".join(lines) + suffix
+
+
+def _distinctive_model_terms(query: str) -> list[str]:
+    """Query words distinctive enough to name a specific MODEL — ≥4 chars, not a
+    colour, not browse filler. 'форум' qualifies; 'чёрного', 'цвета', 'весь' don't."""
+    q = _norm_yo((query or "").lower())
+    terms: list[str] = []
+    for w in _content_words(q):
+        if len(w) < 4 or w in BROWSE_VOCAB:
+            continue
+        if _COLOR_RE.search(w):  # a colour word, not a model name
+            continue
+        if w not in terms:
+            terms.append(w)
+    return terms
+
+
+def find_unavailable_model(query: str, shop_id: int, shown: list[dict]) -> str | None:
+    """Name of a catalog model the customer clearly asked for that is OUT OF STOCK
+    and NOT among the in-stock `shown` matches — so the bot can say 'X нет в наличии'
+    instead of silently substituting a different model (e.g. asked for Adidas Forum,
+    which is sold out, and got shown Ultraboost).
+
+    Conservative by design: needs a distinctive query term (≥4 chars, not a colour)
+    that (a) no shown product covers and (b) appears in the name of an out-of-stock
+    catalog row. A false 'нет в наличии' is worse than staying silent."""
+    terms = _distinctive_model_terms(query)
+    if not terms or not shown:
+        return None
+
+    shown_tokens: set[str] = set()
+    for p in shown:
+        for tok in re.findall(r"[a-zа-яё0-9]+", _norm_yo((p.get("name") or "").lower())):
+            if len(tok) >= 3:
+                shown_tokens.add(tok)
+
+    def _covers(term: str) -> bool:
+        t_lat = _translit_cyr_to_lat(term)
+        for tok in shown_tokens:
+            if term in tok or tok in term:
+                return True
+            if t_lat and t_lat in _translit_cyr_to_lat(tok):
+                return True
+        return False
+
+    absent = [t for t in terms if not _covers(t)]
+    if not absent:
+        return None
+
+    candidates = search_products_db(
+        extract_query_words(query), shop_id, limit=20, in_stock_only=False,
+    )
+    for p in candidates:
+        if int(p.get("quantity") or 0) > 0:
+            continue  # only out-of-stock rows are "unavailable"
+        name_tokens = re.findall(r"[a-zа-яё0-9]+", _norm_yo((p.get("name") or "").lower()))
+        for t in absent:
+            t_lat = _translit_cyr_to_lat(t)
+            if any(t in tok or tok in t or (t_lat and t_lat in _translit_cyr_to_lat(tok))
+                   for tok in name_tokens):
+                return (p.get("name") or "").strip() or None
+    return None
 
 
 def format_browse_reply(shop_id: int | None = None) -> str:
