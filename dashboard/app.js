@@ -1273,18 +1273,39 @@ document.getElementById("preview-btn").addEventListener("click", async () => {
   try { renderImportResult(await uploadCsv("/shop/import-preview")); }
   catch (err) { showToast(err.message, "error"); }
 });
-document.getElementById("import-btn").addEventListener("click", async () => {
+// After a successful import refresh ONLY the catalog (the import re-embeds 500 rows
+// synchronously on the server, so loadAll()'s ~10 parallel calls just pile on). Reset
+// to the first page so the freshly imported rows are visible.
+async function refreshCatalog() {
+  catalogOffset = 0;
+  renderCatalog(await api(`/shop/products?limit=${catalogLimit}&offset=0`));
+}
+
+// Disable the button + show progress while the request runs. The server now embeds
+// the catalog on import (seconds for 500 rows); without this the owner could click
+// twice → a double import + double embedding pass. Pattern mirrors email-verify-resend.
+async function runImport(btn, path, okMsg) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = "Импортирую… считаю эмбеддинги…";
   try {
-    const r = await uploadCsv("/shop/import");
-    showToast(`Импортировано: ${r.imported}`, "success"); loadAll();
-  } catch (err) { showToast(err.message, "error"); }
-});
-document.getElementById("replace-btn").addEventListener("click", async () => {
+    const r = await uploadCsv(path);
+    if (r) { showToast(okMsg(r), "success"); await refreshCatalog(); }
+  } catch (err) {
+    showToast(err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+document.getElementById("import-btn").addEventListener("click", (e) =>
+  runImport(e.currentTarget, "/shop/import", (r) => `Импортировано: ${r.imported}`)
+);
+document.getElementById("replace-btn").addEventListener("click", (e) => {
   if (!confirm("Заменить весь каталог? Старые товары будут удалены.")) return;
-  try {
-    const r = await uploadCsv("/shop/import?replace=true");
-    showToast(`Каталог заменён: ${r.imported} позиций`, "success"); loadAll();
-  } catch (err) { showToast(err.message, "error"); }
+  runImport(e.currentTarget, "/shop/import?replace=true", (r) => `Каталог заменён: ${r.imported} позиций`);
 });
 
 // ── Copy-on-click for .copy-on-click elements ──────────────────────────────────

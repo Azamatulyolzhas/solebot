@@ -3,6 +3,7 @@
 All endpoints are under /shop prefix.
 Authentication: Bearer JWT token obtained via POST /shop/login.
 """
+import asyncio
 import logging
 from pathlib import Path
 
@@ -598,7 +599,12 @@ async def shop_import(file: UploadFile = File(...), replace: bool = False, shop:
     result = validate_product_csv(content)
     if not result["valid"]:
         raise HTTPException(400, "; ".join(result["errors"][:5]))
-    imported = import_products(result["products"], replace=replace, shop_id=shop["id"])
+    # import_products embeds every row synchronously (a blocking pgvector round-trip
+    # per product). Run it off the event loop so a 500-row import can't freeze the
+    # single worker for every other in-flight request.
+    imported = await asyncio.to_thread(
+        import_products, result["products"], replace=replace, shop_id=shop["id"]
+    )
     set_shop_data_source(shop["id"], "csv")
     log_analytics_event("dashboard", "products_imported", {"imported": imported, "replace": replace}, shop_id=shop["id"])
     return {"ok": True, "imported": imported}
