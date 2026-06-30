@@ -51,7 +51,12 @@ from conversations import (
     save_message,
     split_user_id,
 )
-from orders import ORDER_TRIGGERS, handle_order_flow
+from orders import (
+    ORDER_TRIGGERS,
+    _order_name_prompt,
+    handle_order_flow,
+    looks_like_order_request,
+)
 from products import (
     format_browse_reply,
     format_catalog_reply,
@@ -1512,14 +1517,20 @@ _BRAIN_SYSTEM = (
     "КАК ПОКАЗЫВАТЬ ТОВАР: не перечисляй товары с ценами в тексте reply — верни их номера "
     "[N] в поле show, карточки покажет система сама. В reply — только живой текст. Показывай "
     "только ПОДХОДЯЩИЕ модели (обычно 1–5), НЕ весь каталог разом; если критерий не назван — "
-    "предложи пару вариантов или уточни, что нужно.\n\n"
+    "предложи пару вариантов или уточни, что нужно.\n"
+    "Если клиент УТОЧНЯЕТ или спрашивает про УЖЕ показанные товары (цвет, размер, материал, "
+    "цена, «что за», сравнение) — ответь текстом в reply, а show оставь ПУСТЫМ: карточки не "
+    "повторяй. Заполняй show ТОЛЬКО когда показываешь НОВЫЕ/другие товары — новый поиск или "
+    "сужение до ДРУГОГО набора.\n"
+    "Пример: показал кеды → клиент «а бежевый есть?» → reply: «Бежевого нет, есть чёрный и "
+    "белый — какой ближе?», show: [] (карточки уже на экране).\n\n"
     "ОФОРМЛЕНИЕ ЗАКАЗА: когда клиент выбрал ОДНУ модель и хочет купить — заполни order: "
-    "ready=true, id (номер модели из каталога) и size (если размер назван). Если у модели "
-    "несколько размеров, а клиент не выбрал — сначала спроси размер (ready=false). Имя и "
-    "телефон НЕ спрашивай — их соберёт система. Если клиент посреди оформления задаёт "
-    "вопрос — сперва ответь на него (ready=false).\n\n"
+    "ready=true, id (номер модели из каталога), size (если размер назван) и color (если цвет "
+    "назван). Если у модели несколько размеров, а клиент не выбрал — сначала спроси размер "
+    "(ready=false). Имя и телефон НЕ спрашивай — их соберёт система. Если клиент посреди "
+    "оформления задаёт вопрос — сперва ответь на него (ready=false).\n\n"
     "ФОРМАТ ОТВЕТА — СТРОГО JSON, без markdown и текста вокруг:\n"
-    '{{"reply":"...","show":[N,...],"order":{{"ready":false,"id":null,"size":null}}}}\n\n'
+    '{{"reply":"...","show":[N,...],"order":{{"ready":false,"id":null,"size":null,"color":null}}}}\n\n'
     "КАТАЛОГ:\n{catalog}"
 )
 
@@ -1603,6 +1614,38 @@ def _row_for_size(rows: list[dict], size: str) -> dict:
     return rows[0]
 
 
+def _row_attr(row: dict, *keys: str) -> str:
+    attrs = row.get("attributes") or {}
+    for key in keys:
+        val = attrs.get(key)
+        if val not in (None, ""):
+            return str(val).strip()
+    return ""
+
+
+def _row_for_attrs(rows: list[dict], size: str = "", color: str = "") -> dict:
+    """Pick the ONE catalog row matching the chosen size AND colour; fall back to
+    size-only, then colour-only, then the first row. Keeps the order's Товар bound to
+    a real catalog row (with its real size/colour), never to free LLM text. Size/colour
+    casing already matches the catalog here — both are validated against m['sizes'] /
+    m['colors'] (the catalog's own strings) before this is called."""
+    size = (size or "").strip()
+    color = (color or "").strip()
+    if size and color:
+        for r in rows:
+            if _row_attr(r, "размер", "size") == size and _row_attr(r, "цвет", "color") == color:
+                return r
+    if size:
+        for r in rows:
+            if _row_attr(r, "размер", "size") == size:
+                return r
+    if color:
+        for r in rows:
+            if _row_attr(r, "цвет", "color") == color:
+                return r
+    return rows[0]
+
+
 def _brain_reply_safe(text: str, catalog_products: list[dict]) -> bool:
     """Anti-hallucination guard on the brain's free text: every 3+ digit number must
     appear somewhere in the catalog, and no unbacked discount is asserted."""
@@ -1612,6 +1655,32 @@ def _brain_reply_safe(text: str, catalog_products: list[dict]) -> bool:
     if nums - _allowed_numbers(catalog_products):
         return False
     return not _mentions_unbacked_discount(text.lower())
+
+
+# Phrases by which the brain's FREE text would tell the customer an order is being
+# placed, or ask for their name/phone — claims only the deterministic order FSM may
+# make. When the FSM did NOT actually start this turn we scrub them, so a hallucinated
+# 'оформим заказ, напишите имя' can't reach the customer (the live transcript bug).
+_ORDER_CLAIM_MARKERS = (
+    "оформим заказ", "оформляем заказ", "оформляю заказ", "оформим покупк",
+    "оформляем покупк", "напишите ваше имя", "напишите имя", "укажите имя",
+    "ваше имя", "как вас зовут", "как к вам обращаться",
+    "номер телефона", "ваш телефон",
+)
+
+
+def _claims_order_started(text: str) -> bool:
+    """True if free text claims an order is underway/created or asks for name/phone —
+    things only the deterministic FSM (which echoes its own message and returns early)
+    is allowed to say. Modelled on _tone_is_safe's order-claim discipline."""
+    low = (text or "").lower()
+    if any(p in low for p in _ORDER_CLAIM_MARKERS):
+        return True
+    if "заказ" in low and any(
+        w in low for w in ("принят", "оформлен", "создан", "подтвержд", "сделан")
+    ):
+        return True
+    return False
 
 
 # Sentinel: the brain couldn't run because Groq is rate-limited (not because it
@@ -1719,17 +1788,31 @@ async def _brain_reply(
     reply_text = _clean_reply(str(data.get("reply") or "")).strip()
     catalog_products = [r for m in models for r in m["rows"]]
 
-    # Order intent — code creates the order; the brain only signals product + size.
+    # Order intent — code creates the order; the brain only signals product + size +
+    # colour, and we resolve those against the catalog. We start the name/phone FSM
+    # ONLY when THIS message actually carries buy-intent (deterministic check), so a
+    # hallucinated ready=true on a plain question ('из какого материала?') can't trap
+    # the customer into 'напишите имя'. A bare 'да/оформляй' right after a single-
+    # product buy-invite counts too (via _is_order_yes).
     order = data.get("order") if isinstance(data.get("order"), dict) else {}
-    if order.get("ready"):
+    order_ready = bool(order.get("ready")) and (
+        looks_like_order_request(user_message) or _is_order_yes(user_message)
+    )
+    if order_ready:
         m = by_idx.get(_coerce_int(order.get("id")))
         if m:
             sizes = m["sizes"]
+            # Validate size/colour against the catalog model — an invalid value is
+            # ignored (re-ask / pick by what's valid), never substituted into the order.
             size = str(order.get("size") or "").strip()
             if size and size not in sizes:
                 size = ""
+            color = str(order.get("color") or "").strip()
+            if color and color not in m["colors"]:
+                color = ""
             if not size and len(sizes) > 1:
-                reply = reply_text or f"Какой размер? Доступные: {', '.join(sizes)}."
+                ask = reply_text if (reply_text and not _claims_order_started(reply_text)) else ""
+                reply = ask or f"Какой размер? Доступные: {', '.join(sizes)}."
                 await set_last_product_interest(user_id, m["name"])
                 await set_last_shown_products(user_id, m["rows"][:8])
                 await save_ai_result(
@@ -1737,36 +1820,63 @@ async def _brain_reply(
                     started_at, len(m["rows"]), "brain_ask_size", usage=usage, shop_id=shop_id,
                 )
                 return reply
-            row = _row_for_size(m["rows"], size) if size else m["rows"][0]
+            # Товар is built ONLY from the catalog row (by id → size → colour), never
+            # from the brain's text.
+            row = _row_for_attrs(m["rows"], size, color)
+            label = _product_label(row)
             from cache import set_order_state
-            await set_order_state(user_id, {"step": "name", "product_interest": _product_label(row)})
+            await set_order_state(user_id, {"step": "name", "product_interest": label})
             await set_last_shown_products(user_id, m["rows"][:8])
-            reply = "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
+            reply = _order_name_prompt(label, row.get("price"))
             await save_ai_result(
                 user_id, conversation_id, channel, user_message, reply,
                 started_at, 1, "brain_order", usage=usage, shop_id=shop_id,
             )
             return reply
 
-    # Show products — cards rendered deterministically from the catalog rows.
+    # Show products — cards rendered deterministically from the catalog rows. The free
+    # text is dropped if it makes a false order claim: no FSM started this turn (the
+    # order block returns early when it does), so 'оформим заказ, напишите имя' here
+    # would be a phantom — keep the cards, scrub the claim.
     show_models = [by_idx[i] for i in _coerce_int_list(data.get("show")) if i in by_idx]
     if show_models:
         rows = [r for m in show_models for r in m["rows"]]
-        cards = format_catalog_reply(rows)
-        safe_text = reply_text if _brain_reply_safe(reply_text, catalog_products) else ""
-        out = _finalize_product_reply(f"{cards}\n\n{safe_text}" if safe_text else cards, rows)
+        safe_text = reply_text if (
+            _brain_reply_safe(reply_text, catalog_products)
+            and not _claims_order_started(reply_text)
+        ) else ""
+        # Backstop the prompt rule deterministically (the small model drifts): if the
+        # set the brain wants to show is byte-equal to what we showed last turn, this is
+        # a follow-up about already-shown items ('есть бежевый?', 'из какого материала?',
+        # 'дешевле?') — don't re-dump the cards, answer with just the text. Compared on
+        # stable DB row ids, so the brain's per-turn idx renumbering is irrelevant. A
+        # different set (new search / real narrowing) still shows cards; an unchanged set
+        # with no safe text falls back to cards so we never send an empty message.
+        prev_ids = {p.get("id") for p in await get_last_shown_products(user_id)}
+        cur_ids = {r.get("id") for r in rows[:8]}
+        unchanged = bool(cur_ids) and cur_ids == prev_ids
+        if unchanged and safe_text:
+            out = _finalize_product_reply(safe_text, rows)
+            mode = "brain_followup"
+        else:
+            cards = format_catalog_reply(rows)
+            out = _finalize_product_reply(f"{cards}\n\n{safe_text}" if safe_text else cards, rows)
+            mode = "brain_product"
         await set_last_product_interest(user_id, _interest_names(rows))
         await set_last_shown_products(user_id, rows[:8])
         await clear_miss_count(user_id)
         out = _avoid_identical_repeat(out, history)
         await save_ai_result(
             user_id, conversation_id, channel, user_message, out,
-            started_at, len(rows), "brain_product", usage=usage, shop_id=shop_id,
+            started_at, len(rows), mode, usage=usage, shop_id=shop_id,
         )
         return out
 
-    # Plain text answer (no products): 'только кроссовки', colours, 'это всё', etc.
-    if reply_text and _brain_reply_safe(reply_text, catalog_products):
+    # Plain text answer (no products): 'только кроссовки', colours, 'это всё', etc. A
+    # false order claim here (no FSM started) must not reach the customer — drop to the
+    # deterministic chain, which won't claim a phantom order.
+    if (reply_text and _brain_reply_safe(reply_text, catalog_products)
+            and not _claims_order_started(reply_text)):
         await save_ai_result(
             user_id, conversation_id, channel, user_message, reply_text,
             started_at, 0, "brain_text", usage=usage, shop_id=shop_id,

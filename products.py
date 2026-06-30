@@ -657,6 +657,16 @@ def extract_attribute_filters(query: str) -> dict[str, str]:
     size_match = re.search(r"\b(?:р(?:азмер)?\.?\s*)?([3-4][0-9](?:[.,]5)?)\b", q)
     if size_match:
         filters["size"] = size_match.group(1).replace(",", ".")
+    else:
+        # Letter clothing sizes — a universal size vocabulary (not a vertical), so it
+        # stays catalog-agnostic. The ambiguous single letters S/M/L are only read as a
+        # size next to the 'размер' cue ('размер m'); the distinctive XS/XL/XXL/XXXL are
+        # safe as a bare token. Normalised to upper-case; the colour/size HARD filter
+        # (_matches_attr_filters) compares case-insensitively, so casing never mismatches.
+        letter = (re.search(r"\bр(?:азмер)?\.?\s*(xxxl|xxl|xl|xs|s|m|l)\b", q)
+                  or re.search(r"\b(xxxl|xxl|xl|xs)\b", q))
+        if letter:
+            filters["size"] = letter.group(1).upper()
     color_match = _COLOR_RE.search(q)
     if color_match:
         filters["color"] = color_match.group(1)  # the root, e.g. 'син'

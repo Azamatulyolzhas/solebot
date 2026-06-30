@@ -192,12 +192,24 @@ def normalize_phone(message: str) -> str | None:
 
 def _is_valid_name(name: str) -> bool:
     """A name must contain letters — a phone number typed into the name slot
-    (e.g. '87765645633') must be rejected, not stored as the customer's name."""
+    (e.g. '87765645633') must be rejected, not stored as the customer's name.
+
+    Also reject input that carries a buy trigger ('куплю тогда зару размер xl …'):
+    that's the product/intent leaking into the name step, not the customer's name.
+    Storing it gave orders with Имя: 'укук' and Товар: a raw phrase — the FSM re-asks."""
     cleaned = (name or "").strip()
     if not cleaned or cleaned.isdigit():
         return False
     letters = re.sub(r"[^A-Za-zА-Яа-яЁё]", "", cleaned)
-    return len(letters) >= 2
+    if len(letters) < 2:
+        return False
+    low = cleaned.lower()
+    tokens = re.findall(r"[а-яёa-z]+", low)
+    if any(t in ORDER_TRIGGER_WORDS for t in tokens):
+        return False
+    if any(phrase in low for phrase in ORDER_TRIGGER_PHRASES):
+        return False
+    return True
 
 
 _CONFIRM_WORDS = frozenset({
@@ -285,7 +297,13 @@ def _normalize_product_interest(message: str) -> str:
 async def _resolve_product_interest(user_id: str, user_message: str, shop_id: int | None = None) -> str:
     explicit = _normalize_product_interest(user_message)
     if explicit:
-        return explicit
+        # NEVER store the raw remainder as the order's Товар: 'куплю тогда зару размер
+        # xl цвет белый' must resolve to the catalog row 'Zara Linen Shirt (XL, белый)',
+        # not the literal sentence. Run it through the same catalog resolver the confirm
+        # step uses — a real match → the catalog label; a partial cross-script match →
+        # trimmed literal; nothing in the catalog → "" so the caller asks which product.
+        resolved = await _resolve_confirmed_product(user_id, explicit, shop_id)
+        return resolved or ""
     # Pin the SINGLE product the customer confirmed in THIS session. On any
     # uncertainty return "" so the caller asks "which one?" instead of guessing.
     # We deliberately do NOT fall back to the running interest: that shipped the
@@ -390,6 +408,21 @@ async def _ask_order_size(user_id: str, shop_id: int | None = None) -> str:
     return "Какой размер вам нужен?"
 
 
+def _order_name_prompt(product_label: str, price=None) -> str:
+    """First step of the order FSM: echo the catalog product (with its price when we
+    have the row) back BEFORE asking the name, so a wrong binding is visible to the
+    customer immediately instead of surfacing only in the owner's order list. The
+    label always comes from a catalog row, never raw LLM/user text."""
+    label = (product_label or "").strip()
+    head = f"Записываю: {label}" if label else "Записываю заказ"
+    try:
+        if price is not None and int(price) > 0:
+            head += f" — {int(price)}₸"
+    except (TypeError, ValueError):
+        pass
+    return f"{head}. Напишите, пожалуйста, ваше имя."
+
+
 async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None = None) -> str | None:
     try:
         channel, external_user_id = split_user_id(user_id)
@@ -415,7 +448,7 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
                 "step": "name",
                 "product_interest": product_interest,
             })
-            return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
+            return _order_name_prompt(product_interest)
 
         step = state.get("step")
         if step == "order_size":
@@ -429,7 +462,7 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
                         state["product_interest"] = _product_label(p)
                         state["step"] = "name"
                         await set_order_state(user_id, state)
-                        return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
+                        return _order_name_prompt(state["product_interest"], p.get("price"))
             from ai import _family_sizes
             sizes = _family_sizes(rows)
             avail = f" Доступные: {', '.join(sizes)}." if sizes else ""
@@ -446,7 +479,7 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
             state["product_interest"] = product_interest
             state["step"] = "name"
             await set_order_state(user_id, state)
-            return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
+            return _order_name_prompt(product_interest)
 
         if step == "name":
             name = user_message.strip()

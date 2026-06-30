@@ -51,10 +51,32 @@ class TestResolveProductInterestNoLeak:
         out = run(orders._resolve_product_interest("tg_1_y", "хочу купить", 1))
         assert out == "Adidas Ultraboost 22 Black (43)"
 
-    def test_explicit_text_wins(self, monkeypatch):
+    def test_explicit_text_resolved_against_catalog(self, monkeypatch):
+        # Phase 1.4: explicit product text is NOT stored verbatim — it is resolved
+        # against the catalog, so the order's Товар is a real catalog label, never the
+        # raw phrase (the 'тогда зару размер xl цвет белый' transcript bug).
+        import products
         monkeypatch.setattr(orders, "resolve_shop_id", lambda s: s or 1)
+
+        async def _nike(*a, **k):
+            return [{"id": 5, "name": "Nike Air Force 1 Low", "attributes": {}}]
+        monkeypatch.setattr(products, "get_relevant_products", _nike)
+
         out = run(orders._resolve_product_interest("tg_1_z", "хочу купить найк аир", 1))
-        assert out == "найк аир"
+        assert out == "Nike Air Force 1 Low"
+
+    def test_explicit_text_with_no_catalog_hit_asks(self, monkeypatch):
+        # Explicit text that matches nothing → "" so the flow asks which product,
+        # instead of binding the order to an unrecognised phrase.
+        import products
+        monkeypatch.setattr(orders, "resolve_shop_id", lambda s: s or 1)
+
+        async def _empty(*a, **k):
+            return []
+        monkeypatch.setattr(products, "get_relevant_products", _empty)
+
+        out = run(orders._resolve_product_interest("tg_1_z2", "хочу купить абвгд", 1))
+        assert out == ""
 
 
 def _patch_order_io(monkeypatch, captured: dict):
