@@ -433,6 +433,22 @@ function matchProduct(p, q) {
     || attrs.toLowerCase().includes(q);
 }
 
+// Render the JSONB attributes (размер, цвет, материал, память…) read-only, so the
+// owner sees exactly the facts the bot has per SKU. Keys are shop-defined — nothing
+// is hardcoded per vertical.
+function fmtAttrs(a) {
+  if (a === null || a === undefined || a === "") return "—";
+  let obj = a;
+  if (typeof a === "string") {
+    try { obj = JSON.parse(a); } catch { return esc(a); }
+  }
+  if (typeof obj !== "object" || Array.isArray(obj)) return esc(String(obj));
+  const parts = Object.entries(obj)
+    .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== "")
+    .map(([k, v]) => `${esc(k)}: ${esc(String(v))}`);
+  return parts.length ? parts.join(" · ") : "—";
+}
+
 function renderCatalogFiltered(items) {
   document.getElementById("catalog-body").innerHTML = items.map(p => `
     <tr data-id="${p.id}">
@@ -441,8 +457,9 @@ function renderCatalogFiltered(items) {
       <td>${esc(p.category || "—")}</td>
       <td class="editable-cell" data-field="quantity" data-value="${p.quantity}">${esc(p.quantity)}</td>
       <td class="editable-cell" data-field="price" data-value="${p.price}">${fmtPrice(p.price)}</td>
+      <td class="attrs-cell">${fmtAttrs(p.attributes)}</td>
     </tr>
-  `).join("") || `<tr><td colspan="5" class="muted center">Каталог пуст</td></tr>`;
+  `).join("") || `<tr><td colspan="6" class="muted center">Каталог пуст</td></tr>`;
   attachEditListeners();
 }
 

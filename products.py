@@ -14,6 +14,14 @@ log = logging.getLogger(__name__)
 
 CSV_FIELDS = ["name", "description", "sku", "category", "price", "quantity", "attributes"]
 REQUIRED_CSV = {"name", "price", "quantity"}
+# Columns the importer reads directly. ANY other column in an uploaded CSV is folded
+# into `attributes` under its header name (wide format) — so a shop can fill friendly
+# per-attribute columns (бренд, пол, материал, размер, цвет, назначение, сезон…) in
+# Excel instead of packing everything into one `attributes` cell. Stays universal:
+# nothing here hardcodes which extra columns a given vertical uses.
+_BASE_CSV_FIELDS = {"name", "description", "sku", "category", "price", "quantity", "attributes"}
+# Attribute columns surfaced first (in this order) when EXPORTING the catalog to CSV.
+_EXPORT_ATTR_PRIORITY = ["size", "color", "размер", "цвет"]
 
 STOP_WORDS = {
     "есть", "ли", "какие", "какой", "какая", "какое", "хочу", "нужны", "нужен",
@@ -86,6 +94,16 @@ def list_products(limit: int = 100, offset: int = 0, shop_id: int | None = None)
     return [_normalize_row(r) for r in rows]
 
 
+def _coerce_attr_value(val: str):
+    """'42' -> 42, '8.5' -> 8.5, 'кожа' -> 'кожа'. One place so packed `attributes`
+    cells and wide per-attribute columns coerce values identically."""
+    val = str(val).strip()
+    try:
+        return float(val.replace(",", ".")) if "." in val else int(val)
+    except ValueError:
+        return val
+
+
 def _parse_attributes_cell(value: str | None) -> dict:
     if not value or not str(value).strip():
         return {}
@@ -98,16 +116,10 @@ def _parse_attributes_cell(value: str | None) -> dict:
         if not part or ":" not in part:
             continue
         key, val = part.split(":", 1)
-        key, val = key.strip(), val.strip()
+        key = key.strip()
         if not key:
             continue
-        try:
-            if "." in val:
-                attrs[key] = float(val.replace(",", "."))
-            else:
-                attrs[key] = int(val)
-        except ValueError:
-            attrs[key] = val
+        attrs[key] = _coerce_attr_value(val)
     return attrs
 
 
@@ -134,6 +146,16 @@ def _row_from_csv(row: dict, line_no: int) -> dict:
     if price <= 0:
         raise ValueError("price must be greater than 0")
 
+    attrs = _parse_attributes_cell(row.get("attributes"))
+    # Wide format: fold every non-base column into attributes under its header name.
+    # A flat column wins over the same key inside a packed `attributes` cell.
+    for col, val in row.items():
+        if not col or col.strip() in _BASE_CSV_FIELDS:
+            continue
+        if val is None or str(val).strip() == "":
+            continue
+        attrs[col.strip()] = _coerce_attr_value(val)
+
     return {
         "name": name,
         "description": (row.get("description") or "").strip() or None,
@@ -141,7 +163,7 @@ def _row_from_csv(row: dict, line_no: int) -> dict:
         "category": (row.get("category") or "").strip() or None,
         "price": price,
         "quantity": quantity,
-        "attributes": _parse_attributes_cell(row.get("attributes")),
+        "attributes": attrs,
     }
 
 
@@ -194,20 +216,35 @@ def validate_product_csv(content: bytes) -> dict:
 
 
 def products_to_csv(products: list[dict]) -> str:
+    """Export catalog as a WIDE CSV: base columns + one column per attribute key in
+    use (priority keys first, the rest alphabetical). Round-trips with the importer,
+    which folds those extra columns back into attributes."""
+    base = ["name", "description", "sku", "category", "price", "quantity"]
+    seen: list[str] = []
+    for p in products:
+        for k in (p.get("attributes") or {}):
+            if k not in seen:
+                seen.append(k)
+    ordered = [k for k in _EXPORT_ATTR_PRIORITY if k in seen] + sorted(
+        k for k in seen if k not in _EXPORT_ATTR_PRIORITY
+    )
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=CSV_FIELDS, lineterminator="\n")
+    writer = csv.DictWriter(output, fieldnames=base + ordered, lineterminator="\n")
     writer.writeheader()
     for item in products:
         attrs = item.get("attributes") or {}
-        writer.writerow({
+        row = {
             "name": item.get("name", ""),
             "description": item.get("description") or "",
             "sku": item.get("sku") or "",
             "category": item.get("category") or "",
             "price": item.get("price", 0),
             "quantity": item.get("quantity", 0),
-            "attributes": _attrs_json(attrs) if attrs else "",
-        })
+        }
+        for k in ordered:
+            v = attrs.get(k, "")
+            row[k] = "" if v is None else v
+        writer.writerow(row)
     return output.getvalue()
 
 

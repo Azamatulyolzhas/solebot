@@ -89,6 +89,50 @@ class TestParseProductCsv:
             products.parse_product_csv(csv_bytes)
 
 
+class TestWideCsvFormat:
+    def test_extra_columns_folded_into_attributes(self):
+        csv_bytes = (
+            "name,price,quantity,sku,бренд,материал,назначение,size,color\n"
+            "Adidas Ultraboost,55000,2,UB22,Adidas,текстиль,бег,42,чёрный\n"
+        ).encode("utf-8")
+        rows = products.parse_product_csv(csv_bytes)
+        assert rows[0]["attributes"] == {
+            "бренд": "Adidas", "материал": "текстиль", "назначение": "бег",
+            "size": 42, "color": "чёрный",
+        }
+
+    def test_blank_extra_column_is_skipped(self):
+        csv_bytes = (
+            "name,price,quantity,материал,сезон\n"
+            "Кеды,18500,5,канвас,\n"  # сезон empty -> not added
+        ).encode("utf-8")
+        rows = products.parse_product_csv(csv_bytes)
+        assert rows[0]["attributes"] == {"материал": "канвас"}
+
+    def test_flat_column_overrides_packed_attributes(self):
+        csv_bytes = (
+            "name,price,quantity,attributes,color\n"
+            "Vans,22000,3,size:42;color:белый,чёрный\n"
+        ).encode("utf-8")
+        rows = products.parse_product_csv(csv_bytes)
+        assert rows[0]["attributes"]["size"] == 42
+        assert rows[0]["attributes"]["color"] == "чёрный"  # flat column wins
+
+    def test_export_is_wide_and_roundtrips(self):
+        items = [{
+            "name": "Nike AM90", "description": "белые", "sku": "AM90",
+            "category": "Кроссовки", "price": 42000, "quantity": 3,
+            "attributes": {"size": 42, "color": "белый", "бренд": "Nike", "назначение": "бег"},
+        }]
+        text = products.products_to_csv(items)
+        header = text.splitlines()[0]
+        assert "attributes" not in header  # no packed column
+        for col in ("size", "color", "бренд", "назначение"):
+            assert col in header
+        back = products.parse_product_csv(text.encode("utf-8"))
+        assert back[0]["attributes"] == items[0]["attributes"]
+
+
 class TestIsBrowseQuery:
     def test_browse_terms(self):
         assert products.is_browse_query("покажи каталог")
