@@ -94,3 +94,34 @@ def log_analytics_event(channel: str, event_name: str, payload: dict, shop_id: i
         f"INSERT INTO analytics_events (shop_id, channel, event_name, payload) VALUES ({ph}, {ph}, {ph}, {payload_expr})",
         (shop_id, channel, event_name, payload_value),
     )
+
+
+def degraded_reply_stats(shop_id: int, window_seconds: int) -> tuple[int, int]:
+    """Return (degraded_count, total_count) of `chat_reply` events for a shop within
+    the last `window_seconds`, used to detect a degraded-mode spike (Groq storming).
+
+    A degraded reply is any whose payload `mode` starts with 'degraded'
+    (degraded_catalog / degraded_busy). One indexed aggregate query
+    (idx_analytics_events_shop_event_time); JSON access and the time window differ
+    between Postgres and SQLite, so each gets its own expression."""
+    shop_id = resolve_shop_id(shop_id)
+    ph = db_placeholder()
+    if USE_POSTGRES:
+        mode_expr = "payload->>'mode'"
+        time_pred = f"created_at >= NOW() - ({ph} * INTERVAL '1 second')"
+    else:
+        mode_expr = "json_extract(payload, '$.mode')"
+        time_pred = f"created_at >= datetime('now', '-' || {ph} || ' seconds')"
+    rows = fetch_all(
+        f"""
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN {mode_expr} LIKE 'degraded%' THEN 1 ELSE 0 END) AS degraded
+        FROM analytics_events
+        WHERE shop_id = {ph} AND event_name = 'chat_reply' AND {time_pred}
+        """,
+        (shop_id, window_seconds),
+    )
+    if not rows:
+        return 0, 0
+    row = rows[0]
+    return int(row.get("degraded") or 0), int(row.get("total") or 0)

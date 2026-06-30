@@ -326,9 +326,13 @@ def _hit_matches_query(query: str, product: dict) -> bool:
 
 
 # Order-flow words that are conversational filler, not part of a product name.
+# Size words included so a bare 'купить 43 размер' resolves the product from context
+# instead of storing '43 размер' as the order's Товар (the size becomes the size,
+# not the product name).
 _ORDER_FILLER = {
     "хочу", "купить", "куплю", "оформить", "оформляем", "оформи", "оформите",
     "оформили", "заказ", "заказать", "брать", "беру", "возьму", "пожалуйста",
+    "размер", "размера", "размеры", "размером", "size",
 }
 
 
@@ -374,6 +378,18 @@ async def _resolve_confirmed_product(user_id: str, user_message: str, shop_id: i
     return _trim_to_product_phrase(text)
 
 
+async def _ask_order_size(user_id: str, shop_id: int | None = None) -> str:
+    """Ask which size to order for a single multi-size model, listing what's in stock.
+    Sets the 'order_size' step so the next message is parsed as the chosen size."""
+    from ai import _family_sizes, resolve_followup_products
+    rows = await resolve_followup_products(user_id, resolve_shop_id(shop_id))
+    sizes = _family_sizes(rows)
+    await set_order_state(user_id, {"step": "order_size"})
+    if sizes:
+        return f"Какой размер оформляем? Доступные: {', '.join(sizes)}."
+    return "Какой размер вам нужен?"
+
+
 async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None = None) -> str | None:
     try:
         channel, external_user_id = split_user_id(user_id)
@@ -383,7 +399,12 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
             if not looks_like_order_request(user_message):
                 return None
 
+            from ai import ORDER_NEEDS_SIZE
             product_interest = await _resolve_product_interest(user_id, user_message, shop_id)
+            if product_interest is ORDER_NEEDS_SIZE:
+                # One model picked but several sizes and none named — ask the size
+                # before binding, so we never silently order the first size variant.
+                return await _ask_order_size(user_id, shop_id)
             if not product_interest:
                 # Couldn't pin a single confirmed product — ask instead of
                 # guessing (a wrong binding order is worse than one question).
@@ -397,6 +418,23 @@ async def handle_order_flow(user_id: str, user_message: str, shop_id: int | None
             return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
 
         step = state.get("step")
+        if step == "order_size":
+            from ai import _product_label, _row_size_value, resolve_followup_products
+            from products import extract_attribute_filters
+            want = extract_attribute_filters(user_message).get("size")
+            rows = await resolve_followup_products(user_id, resolve_shop_id(shop_id))
+            if want:
+                for p in rows:
+                    if _row_size_value(p) == want:
+                        state["product_interest"] = _product_label(p)
+                        state["step"] = "name"
+                        await set_order_state(user_id, state)
+                        return "Отлично, оформим заказ. Напишите, пожалуйста, ваше имя."
+            from ai import _family_sizes
+            sizes = _family_sizes(rows)
+            avail = f" Доступные: {', '.join(sizes)}." if sizes else ""
+            return f"Не нашёл такой размер.{avail} Напишите, пожалуйста, размер из списка."
+
         if step == "confirm_product":
             product_interest = await _resolve_confirmed_product(user_id, user_message, shop_id)
             if not product_interest:

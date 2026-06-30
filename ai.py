@@ -33,6 +33,9 @@ from cache import (
 from config import (
     AI_BRAIN,
     BRAIN_RETRIEVAL_TOPK,
+    FALLBACK_API_KEY,
+    FALLBACK_BASE_URL,
+    FALLBACK_MODEL,
     GROQ_BRAIN_TEMPERATURE,
     GROQ_CLASSIFIER_MODEL,
     GROQ_MODEL,
@@ -612,27 +615,71 @@ def _product_label(product: dict) -> str:
     return f"{name} ({', '.join(extras)})" if extras else name
 
 
-async def resolve_selected_product(user_id: str, shop_id: int) -> str | None:
+def _row_size_value(product: dict) -> str:
+    """The size recorded on a product row ('размер'/'size'), normalized to a string."""
+    attrs = product.get("attributes") or {}
+    return str(attrs.get("размер") or attrs.get("size") or "").strip()
+
+
+def _stated_size_from_history(history: list[dict]) -> str | None:
+    """The most recent explicit size the customer typed ('43', 'размер 43', '43 размер').
+
+    Used so an order binds the size the customer actually asked for, not the first
+    size variant in catalog order — the bug where 'белые 43' got ordered as size 42."""
+    from products import extract_attribute_filters
+    for msg in reversed(history or []):
+        if msg.get("role") != "user":
+            continue
+        size = extract_attribute_filters(msg.get("content") or "").get("size")
+        if size:
+            return size
+    return None
+
+
+# Sentinel: the customer settled on ONE model, but it has several sizes and none is
+# determinable from the dialogue — the order flow must ASK the size before binding,
+# never silently bind the first size variant (the 'ordered 42 when 43 asked' bug).
+ORDER_NEEDS_SIZE = object()
+
+
+async def resolve_selected_product(user_id: str, shop_id: int) -> "str | object | None":
     """Best-effort: which single product did the customer settle on for the order?
 
     Reads the last-shown products + recent dialogue. If only one was shown, that's
-    it. If several, the cheap model picks the one the client confirmed. Returns a
-    product label, or None to fall back to the running interest (all of them)."""
+    it. For size variants of ONE model, bind the size the customer explicitly named;
+    if none is determinable, return ORDER_NEEDS_SIZE so the caller asks rather than
+    guessing the first row. For several distinct models, the cheap model picks the
+    one the client confirmed. Returns a product label, ORDER_NEEDS_SIZE, or None."""
     products = await resolve_followup_products(user_id, shop_id)
     if not products:
         return None
     if len(products) == 1:
         return _product_label(products[0])
 
+    history = _trim_history(await load_session_history(user_id))
+
+    # Size variants of a single model: honor the explicitly stated size; if we can't
+    # tell which size, ask instead of binding the first (catalog-order) row.
+    names = {(p.get("name") or "").strip().lower() for p in products}
+    sizes = {_row_size_value(p) for p in products} - {""}
+    if len(names) == 1 and len(sizes) > 1:
+        stated = _stated_size_from_history(history)
+        if stated:
+            for p in products:
+                if _row_size_value(p) == stated:
+                    return _product_label(p)
+        return ORDER_NEEDS_SIZE
+
     api_key = resolve_groq_api_key(shop_id)
     if not api_key:
         return None
-    history = _trim_history(await load_session_history(user_id))
     if not history:
         return None
 
     listing = "\n".join(
-        f"{i + 1}. {p.get('name')}" for i, p in enumerate(products)
+        f"{i + 1}. {p.get('name')}"
+        + (f" (размер {_row_size_value(p)})" if _row_size_value(p) else "")
+        for i, p in enumerate(products)
     )
     system = (
         "По последним сообщениям диалога определи, какой ОДИН товар из списка "
@@ -850,6 +897,67 @@ def _retry_after_seconds(resp: httpx.Response) -> float | None:
         return None
 
 
+def _llm_providers(primary_api_key: str, model: str | None) -> list[dict]:
+    """Ordered OpenAI-compatible chat providers to try.
+
+    Primary = Groq (per-shop BYOK or platform key, passed in). An optional fallback
+    (OpenRouter / Mistral / any OpenAI-compatible endpoint) is appended ONLY when all
+    three FALLBACK_* env vars are set — otherwise the list is just Groq and behaviour
+    is unchanged. The fallback carries its own url/key/model: its model id differs
+    from Groq's, so we override the requested model with the provider's own."""
+    providers = [{
+        "name": "groq",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "api_key": primary_api_key,
+        "model": model or GROQ_MODEL,
+    }]
+    if FALLBACK_BASE_URL and FALLBACK_API_KEY and FALLBACK_MODEL:
+        providers.append({
+            "name": "fallback",
+            "url": FALLBACK_BASE_URL.rstrip("/") + "/chat/completions",
+            "api_key": FALLBACK_API_KEY,
+            "model": FALLBACK_MODEL,
+        })
+    return providers
+
+
+async def _post_chat(
+    client: httpx.AsyncClient, provider: dict, base_body: dict, shop_id: int,
+) -> tuple[dict | None, str | None]:
+    """One request to ONE provider, with the same short 429 retry as before.
+
+    Returns (json, None) on success or (None, kind) on failure, where kind is one of
+    rate_limit / http / transport — so the caller can decide whether to fall through
+    to the next provider and what error to surface if all fail."""
+    headers = {
+        "Authorization": f"Bearer {provider['api_key']}",
+        "Content-Type": "application/json",
+    }
+    body = {**base_body, "model": provider["model"]}
+    for attempt in range(2):
+        try:
+            resp = await client.post(provider["url"], headers=headers, json=body)
+            resp.raise_for_status()
+            return resp.json(), None
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                wait = _retry_after_seconds(e.response)
+                if attempt == 0 and wait is not None and wait <= GROQ_RETRY_MAX_WAIT:
+                    await asyncio.sleep(wait)
+                    continue
+                log.error("LLM rate-limited provider=%s shop=%s: %s",
+                          provider["name"], shop_id, e)
+                return None, "rate_limit"
+            log.error("LLM request failed provider=%s shop=%s: %s",
+                      provider["name"], shop_id, e)
+            return None, "http"
+        except httpx.HTTPError as e:
+            log.error("LLM request failed provider=%s shop=%s: %s",
+                      provider["name"], shop_id, e)
+            return None, "transport"
+    return None, "rate_limit"
+
+
 async def _groq_messages(
     shop_id: int,
     messages: list[dict],
@@ -860,57 +968,56 @@ async def _groq_messages(
     model: str | None = None,
     response_format: dict | None = None,
 ) -> tuple[str | None, dict]:
-    """Call Groq. On failure returns (None, {"error": kind}) so callers can tell a
+    """Call the LLM with failover: try Groq, then (if configured) a fallback provider.
+
+    On total failure returns (None, {"error": kind}) so callers can still tell a
     rate-limit (kind="rate_limit") apart from a transport error — the brain degrades
     to a deterministic, no-LLM catalog answer on rate-limit instead of cascading into
-    more doomed calls. A single short retry is made when a 429 carries a small
-    `Retry-After`; a long one means the per-minute bucket is blown, so we give up
-    fast rather than block the reply."""
-    body: dict = {
-        "model": model or GROQ_MODEL,
+    more doomed calls. The `error` reported is the LAST provider's failure kind. When
+    no fallback is configured the provider list is just Groq, so behaviour (including
+    the single short 429 retry) is identical to before."""
+    base_body: dict = {
         "max_tokens": max_tokens,
         "temperature": temperature,
         "messages": messages,
     }
     if response_format:
-        body["response_format"] = response_format
+        base_body["response_format"] = response_format
 
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    url = "https://api.groq.com/openai/v1/chat/completions"
+    providers = _llm_providers(api_key, model)
+    last_error = "transport"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        for attempt in range(2):
-            try:
-                resp = await client.post(url, headers=headers, json=body)
-                resp.raise_for_status()
-                break
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429:
-                    wait = _retry_after_seconds(e.response)
-                    if attempt == 0 and wait is not None and wait <= GROQ_RETRY_MAX_WAIT:
-                        await asyncio.sleep(wait)
-                        continue
-                    log.error("Groq rate-limited shop=%s: %s", shop_id, e)
-                    return None, {"error": "rate_limit"}
-                log.error("Groq request failed shop=%s: %s", shop_id, e)
-                return None, {"error": "http"}
-            except httpx.HTTPError as e:
-                log.error("Groq request failed shop=%s: %s", shop_id, e)
-                return None, {"error": "transport"}
+        for provider in providers:
+            if not provider["api_key"]:
+                continue
+            data, error = await _post_chat(client, provider, base_body, shop_id)
+            if error:
+                last_error = error
+                continue
 
-    data = resp.json()
-    usage = data.get("usage") or {}
-    # Groq echoes back the model it actually served — thread it through `usage`
-    # so save_ai_result can log/record which model answered each message.
-    served_model = data.get("model")
-    if served_model:
-        usage["model"] = served_model
-    if data.get("error"):
-        log.error("Groq error shop=%s: %s", shop_id, data["error"])
-        return None, usage
+            usage = data.get("usage") or {}
+            # The API echoes back the model it actually served — thread it through
+            # `usage` so save_ai_result can log/record which model answered.
+            served_model = data.get("model")
+            if served_model:
+                usage["model"] = served_model
+            if data.get("error"):
+                log.error("LLM error provider=%s shop=%s: %s",
+                          provider["name"], shop_id, data["error"])
+                last_error = "http"
+                continue
 
-    reply = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
-    return (reply or None), usage
+            reply = (data.get("choices") or [{}])[0].get(
+                "message", {}).get("content", "").strip()
+            if not reply:
+                last_error = "empty"
+                continue
+            if provider["name"] != "groq":
+                log.warning("LLM served by FALLBACK provider shop=%s", shop_id)
+            return reply, usage
+
+    return None, {"error": last_error}
 
 
 def _bound_catalog_for_llm(items: list[dict], query: str, cap: int = LLM_CATALOG_MAX_ITEMS) -> list[dict]:
@@ -2201,6 +2308,16 @@ async def save_ai_result(
         )
     except Exception:
         log.exception("Saving AI result failed")
+
+    # Proactive alert when degraded replies spike (Groq storming). Runs only from a
+    # degraded turn; the alert helper's read-only cooldown gate keeps it cheap (DB
+    # hit at most once per cooldown) and it never raises.
+    if shop_id is not None and mode.startswith("degraded"):
+        try:
+            from notifications import maybe_alert_degradation_spike
+            await maybe_alert_degradation_spike(shop_id, channel)
+        except Exception:
+            log.exception("Degradation alert dispatch failed shop=%s", shop_id)
 
 
 async def sandbox_reply(

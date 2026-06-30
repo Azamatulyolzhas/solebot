@@ -2,6 +2,12 @@ import asyncio
 import logging
 import time
 
+from config import (
+    DEGRADED_ALERT_COOLDOWN_SEC,
+    DEGRADED_ALERT_MIN_SAMPLES,
+    DEGRADED_ALERT_RATIO,
+    DEGRADED_ALERT_WINDOW_SEC,
+)
 from shops import get_shop_by_id, get_shop_owner_email, get_shop_subscription_detail, resolve_shop_id
 
 log = logging.getLogger(__name__)
@@ -10,15 +16,25 @@ _OWNER_ALERT_DEDUPE: dict[tuple[int, str], float] = {}
 _OWNER_ALERT_WINDOW_SECONDS = 24 * 3600
 
 
-def _claim_owner_alert(shop_id: int, kind: str) -> bool:
-    """True if this (shop_id, kind) hasn't been alerted in the last 24h. Mutates state."""
+def _claim_owner_alert(
+    shop_id: int, kind: str, window_seconds: float = _OWNER_ALERT_WINDOW_SECONDS,
+) -> bool:
+    """True if this (shop_id, kind) hasn't been alerted within `window_seconds`
+    (default 24h). Mutates state — records 'now' as the last-alert time on success."""
     key = (shop_id, kind)
     now = time.time()
     last = _OWNER_ALERT_DEDUPE.get(key, 0.0)
-    if now - last < _OWNER_ALERT_WINDOW_SECONDS:
+    if now - last < window_seconds:
         return False
     _OWNER_ALERT_DEDUPE[key] = now
     return True
+
+
+def _owner_alert_active(shop_id: int, kind: str, window_seconds: float) -> bool:
+    """Read-only: True if (shop_id, kind) was alerted within `window_seconds`. Used
+    as a cheap pre-gate so we skip the DB query while a cooldown is in effect."""
+    last = _OWNER_ALERT_DEDUPE.get((shop_id, kind), 0.0)
+    return (time.time() - last) < window_seconds
 
 
 def _order_message(
@@ -164,6 +180,55 @@ async def notify_owner_subscription_expired(shop_id: int) -> bool:
         return await _send_shop_telegram(shop, text)
     except Exception as e:
         log.error("Subscription owner alert failed shop=%s: %s", shop_id, e)
+        return False
+
+
+async def maybe_alert_degradation_spike(shop_id: int, channel: str | None = None) -> bool:
+    """Alert the shop owner when degraded_* replies spike — a sign Groq is storming.
+
+    Called only from a degraded turn (see ai.save_ai_result). Cheap by design: the
+    read-only cooldown gate short-circuits BEFORE any DB query, so during a storm we
+    run the count query at most once per DEGRADED_ALERT_COOLDOWN_SEC. Fires one
+    Telegram alert when the degraded share over the window crosses the ratio with
+    enough samples. Never raises — alerting must not break the reply path."""
+    try:
+        shop_id = resolve_shop_id(shop_id)
+        # Cooldown pre-gate (read-only): during a storm this is the common path and
+        # avoids hitting the DB on every degraded reply.
+        if _owner_alert_active(shop_id, "degradation", DEGRADED_ALERT_COOLDOWN_SEC):
+            return False
+
+        from conversations import degraded_reply_stats
+        degraded, total = await asyncio.to_thread(
+            degraded_reply_stats, shop_id, DEGRADED_ALERT_WINDOW_SEC
+        )
+        if total < DEGRADED_ALERT_MIN_SAMPLES:
+            return False
+        ratio = degraded / total
+        if ratio < DEGRADED_ALERT_RATIO:
+            return False
+
+        # Claim the cooldown slot only now that we're actually alerting, so a
+        # below-threshold check never consumes it.
+        if not _claim_owner_alert(shop_id, "degradation", DEGRADED_ALERT_COOLDOWN_SEC):
+            return False
+        shop = get_shop_by_id(shop_id)
+        if not shop:
+            return False
+        minutes = max(1, DEGRADED_ALERT_WINDOW_SEC // 60)
+        pct = round(ratio * 100)
+        text = (
+            f"⚠️ Бот часто отвечает в упрощённом режиме — {shop.get('name') or 'Магазин'}\n"
+            f"За последние ~{minutes} мин {pct}% ответов ({degraded} из {total}) — "
+            "без ИИ, прямо по каталогу.\n"
+            "Похоже, лимит Groq штормит. Проверьте тариф/нагрузку Groq."
+        )
+        log.warning(
+            "Degradation spike shop=%s ratio=%.2f (%d/%d)", shop_id, ratio, degraded, total
+        )
+        return await _send_shop_telegram(shop, text)
+    except Exception as e:
+        log.error("Degradation spike alert failed shop=%s: %s", shop_id, e)
         return False
 
 

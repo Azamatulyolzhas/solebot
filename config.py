@@ -53,6 +53,32 @@ try:
 except ValueError:
     GROQ_RETRY_MAX_WAIT = 2.0
 
+# ── Резервный LLM-провайдер (отказоустойчивость) ──────────────────────────────────
+# Второй OpenAI-совместимый chat-endpoint, который пробуется, когда Groq упал
+# (rate-limit / HTTP / обрыв связи). По умолчанию ВЫКЛЮЧЕН — задай все три значения,
+# чтобы включить. Примеры:
+#   OpenRouter: FALLBACK_BASE_URL=https://openrouter.ai/api/v1
+#               FALLBACK_MODEL=meta-llama/llama-3.3-70b-instruct
+#   Mistral:    FALLBACK_BASE_URL=https://api.mistral.ai/v1
+#               FALLBACK_MODEL=mistral-large-latest
+# ВАЖНО: для «мозга» модель должна поддерживать JSON-режим (response_format).
+FALLBACK_BASE_URL = os.getenv("FALLBACK_BASE_URL", "").strip()
+FALLBACK_API_KEY = os.getenv("FALLBACK_API_KEY", "").strip()
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "").strip()
+
+# ── Алерт на всплеск деградированных ответов (Groq штормит) ────────────────────────
+# Когда доля degraded_* ответов магазина за окно WINDOW_SEC превышает RATIO при
+# минимум MIN_SAMPLES ответов — владельцу уходит одно уведомление, не чаще раза в
+# COOLDOWN_SEC. Дёшево: проверка читает БД максимум раз за кулдаун и только с
+# degraded-хода (см. notifications.maybe_alert_degradation_spike).
+try:
+    DEGRADED_ALERT_RATIO = float(os.getenv("DEGRADED_ALERT_RATIO", "0.2"))
+except ValueError:
+    DEGRADED_ALERT_RATIO = 0.2
+DEGRADED_ALERT_MIN_SAMPLES = int(os.getenv("DEGRADED_ALERT_MIN_SAMPLES", "10"))
+DEGRADED_ALERT_WINDOW_SEC = int(os.getenv("DEGRADED_ALERT_WINDOW_SEC", "600"))
+DEGRADED_ALERT_COOLDOWN_SEC = int(os.getenv("DEGRADED_ALERT_COOLDOWN_SEC", "1800"))
+
 # ── Embeddings / RAG semantic search ────────────────────────────────────────────
 # A hosted, OpenAI-compatible /v1/embeddings endpoint (default OpenAI). Vector
 # search activates only when USE_POSTGRES is on AND EMBEDDING_API_KEY is set —
