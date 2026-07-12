@@ -13,7 +13,7 @@ from pydantic import BaseModel, EmailStr
 
 from admin_service import count_shop_messages, count_shop_rows, list_recent_messages
 from db import db_placeholder, fetch_all
-from auth import create_shop_token, decode_shop_token, hash_password, verify_password
+from auth import create_shop_token, decode_shop_claims, hash_password, verify_password
 from conversations import log_analytics_event
 from orders import ORDER_STATUSES, list_orders, update_order_status
 from products import (
@@ -115,12 +115,17 @@ def _check_sandbox_rate(shop_id: int) -> None:
 
 def get_current_shop(credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> dict:
     token = credentials.credentials if credentials else None
-    shop_id = decode_shop_token(token) if token else None
-    if not shop_id:
+    claims = decode_shop_claims(token) if token else None
+    if not claims:
         raise HTTPException(401, "Требуется авторизация")
+    shop_id, token_version = claims
     shop = get_shop_by_id(shop_id)
     if not shop or shop.get("status") != "active":
         raise HTTPException(403, "Магазин не найден или заблокирован")
+    # Password change bumps shops.token_version — every token minted before
+    # the bump carries a stale "tv" and dies here.
+    if int(shop.get("token_version") or 0) != token_version:
+        raise HTTPException(401, "Сессия недействительна — войдите заново")
     return shop
 
 
@@ -368,7 +373,7 @@ async def shop_login(body: LoginRequest, request: Request):
         raise HTTPException(401, "Неверный email или пароль")
     if shop.get("status") != "active":
         raise HTTPException(403, "Магазин заблокирован")
-    token = create_shop_token(shop["id"])
+    token = create_shop_token(shop["id"], int(shop.get("token_version") or 0))
     return {"token": token, "shop_id": shop["id"], "name": shop["name"]}
 
 
@@ -671,7 +676,11 @@ async def shop_change_password(body: PasswordChange, shop: dict = Depends(get_cu
     if len(body.new_password) < 8:
         raise HTTPException(400, "Пароль должен быть не менее 8 символов")
     set_shop_owner_password(shop["id"], hash_password(body.new_password))
-    return {"ok": True}
+    # token_version just bumped — reissue so THIS dashboard session survives;
+    # every other previously issued token is now rejected by get_current_shop.
+    fresh = get_shop_by_id(shop["id"]) or {}
+    token = create_shop_token(shop["id"], int(fresh.get("token_version") or 0))
+    return {"ok": True, "token": token}
 
 
 @router.get("/subscription")

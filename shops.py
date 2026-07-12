@@ -252,7 +252,7 @@ def get_shop_by_id(shop_id: int) -> dict | None:
             f"""SELECT id, name, slug, owner_email, status, tg_token, tg_webhook_secret,
                        owner_telegram_chat_id, owner_telegram_username, groq_system_prompt,
                        groq_api_key, moysklad_token, sync_api_key, bot_role, business_type,
-                       website_url, data_source, email_verified, created_at
+                       website_url, data_source, email_verified, token_version, created_at
                 FROM shops WHERE id = {ph} LIMIT 1""",
             (shop_id,),
         )
@@ -274,7 +274,8 @@ def get_shop_by_email(email: str) -> dict | None:
     try:
         ph = db_placeholder()
         rows = fetch_all(
-            f"""SELECT id, name, slug, owner_email, owner_password_hash, status, groq_system_prompt
+            f"""SELECT id, name, slug, owner_email, owner_password_hash, status, groq_system_prompt,
+                       token_version
                 FROM shops WHERE LOWER(owner_email) = LOWER({ph}) AND status <> 'deleted' LIMIT 1""",
             (email,),
         )
@@ -376,8 +377,14 @@ def resolve_data_source(shop: dict) -> str:
 
 
 def set_shop_owner_password(shop_id: int, password_hash: str) -> None:
+    """Set a new password hash and bump token_version so every previously
+    issued JWT stops validating (see routes.shop.get_current_shop)."""
     ph = db_placeholder()
-    execute_write(f"UPDATE shops SET owner_password_hash = {ph} WHERE id = {ph}", (password_hash, shop_id))
+    execute_write(
+        f"UPDATE shops SET owner_password_hash = {ph}, "
+        f"token_version = COALESCE(token_version, 0) + 1 WHERE id = {ph}",
+        (password_hash, shop_id),
+    )
 
 
 def save_shop_tg_token(shop_id: int, tg_token: str, webhook_secret: str) -> None:

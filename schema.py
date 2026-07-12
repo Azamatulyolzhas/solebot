@@ -23,6 +23,7 @@ SHOP_EXTRA_COLUMNS = (
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_telegram_chat_id TEXT",
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_telegram_username TEXT",
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0",
 )
 
 SUBSCRIPTION_EXTRA_COLUMNS = (
@@ -225,6 +226,7 @@ def ensure_app_tables() -> None:
                     owner_email TEXT,
                     owner_password_hash TEXT,
                     status TEXT NOT NULL DEFAULT 'active',
+                    token_version INTEGER NOT NULL DEFAULT 0,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
@@ -374,6 +376,7 @@ def ensure_app_tables() -> None:
                     owner_email TEXT,
                     owner_password_hash TEXT,
                     status TEXT DEFAULT 'active',
+                    token_version INTEGER NOT NULL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -397,6 +400,7 @@ def ensure_app_tables() -> None:
                 "owner_telegram_chat_id": "ALTER TABLE shops ADD COLUMN owner_telegram_chat_id TEXT",
                 "owner_telegram_username": "ALTER TABLE shops ADD COLUMN owner_telegram_username TEXT",
                 "email_verified": "ALTER TABLE shops ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0",
+                "token_version": "ALTER TABLE shops ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0",
             }
             for column, ddl in sqlite_shop_cols.items():
                 if column not in existing_shop_columns:

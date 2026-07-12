@@ -1521,7 +1521,9 @@ document.getElementById("profile-change-pwd-btn").addEventListener("click", asyn
   const nw  = document.getElementById("profile-new-pwd").value;
   if (!cur || !nw) { showToast("Заполните оба поля", "error"); return; }
   try {
-    await api("/shop/change-password", { method: "POST", json: { current_password: cur, new_password: nw } });
+    const resp = await api("/shop/change-password", { method: "POST", json: { current_password: cur, new_password: nw } });
+    // Смена пароля отзывает все старые токены — сервер вернул свежий для этой сессии.
+    if (resp && resp.token) { jwtToken = resp.token; localStorage.setItem("shop_token", jwtToken); }
     document.getElementById("profile-cur-pwd").value = "";
     document.getElementById("profile-new-pwd").value = "";
     showToast("Пароль изменён", "success");
