@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 venv/
 *.db
+/*.csv
+.claude/
+.pytest_cache/
