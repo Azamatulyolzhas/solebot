@@ -34,23 +34,35 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # ── JWT tokens ─────────────────────────────────────────────────────────────────
 
-def create_shop_token(shop_id: int) -> str:
+def create_shop_token(shop_id: int, token_version: int = 0) -> str:
     payload = {
         "sub": str(shop_id),
+        "tv": int(token_version or 0),
         "exp": datetime.now(timezone.utc) + timedelta(days=JWT_TTL_DAYS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def decode_shop_token(token: str) -> int | None:
-    """Return shop_id from token, or None if invalid/expired."""
+def decode_shop_claims(token: str) -> tuple[int, int] | None:
+    """Return (shop_id, token_version) from a token, or None if invalid/expired.
+
+    Tokens issued before versioning carry no "tv" claim and count as version 0,
+    so sessions that predate the rollout stay valid until the owner changes
+    their password (which bumps shops.token_version past 0).
+    """
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         if payload.get("role") == "admin":
             return None
-        return int(payload["sub"])
+        return int(payload["sub"]), int(payload.get("tv") or 0)
     except Exception:
         return None
+
+
+def decode_shop_token(token: str) -> int | None:
+    """Return shop_id from token, or None if invalid/expired."""
+    claims = decode_shop_claims(token)
+    return claims[0] if claims else None
 
 
 def verify_admin_credentials(email: str, password: str) -> bool:
