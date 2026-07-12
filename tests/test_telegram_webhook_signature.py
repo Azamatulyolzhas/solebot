@@ -8,7 +8,6 @@ a misconfigured proxy can spoof updates.
 """
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -64,7 +63,6 @@ class TestDefaultWebhookSignature:
         # signature check is skipped so we don't accidentally lock ourselves
         # out of an existing default-bot setup.
         import config as _cfg
-        import routes.api as _api
 
         monkeypatch.setattr(_cfg, "TELEGRAM_WEBHOOK_SECRET", "")
 

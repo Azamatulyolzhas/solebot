@@ -7,7 +7,6 @@ from passlib.context import CryptContext
 
 from config import (
     ADMIN_EMAIL,
-    ADMIN_PASSWORD,
     ADMIN_PASSWORD_HASH,
     JWT_ALGORITHM,
     JWT_SECRET,

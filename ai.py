@@ -48,7 +48,7 @@ from conversations import (
     save_message,
     split_user_id,
 )
-from orders import ORDER_TRIGGERS, handle_order_flow
+from orders import handle_order_flow
 from products import (
     format_browse_reply,
     format_catalog_reply,

@@ -6,7 +6,6 @@ Pins:
   - orders.create_order fires `first_lead` ONLY on the shop's first order
   - GET /admin/funnel returns the documented shape with distinct shop_id counts
 """
-from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -99,7 +98,6 @@ class TestFunnelEndpoint:
 
     def test_funnel_shape(self, monkeypatch):
         from routes.admin import router as admin_router
-        from admin_service import require_admin
 
         app = FastAPI()
         app.include_router(admin_router)

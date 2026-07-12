@@ -222,7 +222,7 @@ def send_onboarding_day3(
       </p>
     </div>
     """
-    return _send(owner_email, f"3 дня с Vendly — как дела с настройкой?", html)
+    return _send(owner_email, "3 дня с Vendly — как дела с настройкой?", html)
 
 
 def send_onboarding_day10(shop_name: str, owner_email: str, *, days_left: int) -> bool:

@@ -474,7 +474,6 @@ async def analytics_insights(shop: dict = Depends(get_current_shop)):
     """Конверсия, топ пустых запросов, средняя latency — из analytics_events."""
     from db import fetch_all, fetch_one_value, db_placeholder
     import config as _cfg
-    import json as _json
     sid = shop["id"]
     ph = db_placeholder()
     try:

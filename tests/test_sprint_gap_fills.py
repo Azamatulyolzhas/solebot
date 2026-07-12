@@ -8,7 +8,6 @@ Three gaps filled:
   3. CUSTOMER_UNAVAILABLE_TEXT info-leak guard — the constant must not embed
      quota numbers, shop names, or template placeholders.
 """
-import asyncio
 import os
 import sqlite3
 import tempfile

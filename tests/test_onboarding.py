@@ -6,7 +6,6 @@ kind) and the re-run case (a second cron call doesn't double-send).
 """
 import sqlite3
 import tempfile
-from unittest.mock import patch
 
 import pytest
 

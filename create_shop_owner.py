@@ -46,7 +46,7 @@ def set_owner(email: str, password: str, shop_id: int | None):
     )
     print(f"✓ Owner set for shop id={shop_id}")
     print(f"  Email:    {email}")
-    print(f"  Login at: /shop (dashboard)")
+    print("  Login at: /shop (dashboard)")
 
 
 def main():

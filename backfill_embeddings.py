@@ -4,8 +4,8 @@ Run after deploying vector search:
     python backfill_embeddings.py
 """
 import logging
-from db import fetch_all, execute_write, get_db
-from embeddings import embed_products, is_available, product_text
+from db import fetch_all, get_db
+from embeddings import embed_products, is_available
 from schema import ensure_app_tables
 
 logging.basicConfig(level=logging.INFO)

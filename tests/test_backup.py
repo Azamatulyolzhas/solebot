@@ -6,7 +6,6 @@ canned rows so the ZIP structure can be inspected without I/O.
 import io
 import zipfile
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

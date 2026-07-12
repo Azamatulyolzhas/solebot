@@ -11,7 +11,6 @@ Pins:
   - /shop/verify-email with an expired/used/missing token returns 400.
   - /shop/resend-verification (auth) issues a fresh token.
 """
-from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
